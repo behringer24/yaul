@@ -2,7 +2,9 @@
 
 # Environment 
 PREFIX	= /usr/local
+LOGPATH	= /var/log/yaul
 MKDIR	= mkdir
+CHMOD	= chmod
 CP	= cp
 CC	= gcc
 CCADMIN	= CCadmin
@@ -14,6 +16,10 @@ CONF	= Release
 all: yaul-$(CONF)
 	
 debug: yaul-Debug
+	
+install:
+	$(MKDIR) $(LOGPATH)
+	$(CHMOD) a+x $(LOGPATH)
 	
 yaul-Release: main.c
 	echo Target: $(CONF)

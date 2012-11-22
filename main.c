@@ -19,7 +19,7 @@
 #include <signal.h>
 #include <syslog.h>
 #define LOCAL_SERVER_PORT 9930
-#define BUF 255
+#define BUF 1500
 #define VERSION "YAUL version 0.1.0 - Yet another UDP logger"
 
 int port = LOCAL_SERVER_PORT;
@@ -28,6 +28,7 @@ int daemonize = 0;
 int comm[2];
 char *mp = "0";
 pid_t pid;
+FILE * fp;
 
 static void sig_hup(int signo) {
     syslog(LOG_INFO, "caught SIGHUP");
@@ -78,6 +79,7 @@ void daemonize_server(void) {
         memset(mp, (char) EXIT_SUCCESS, 1);
         (void)write(comm[1], mp, 1);
         (void)close(comm[1]);
+		free(mp);
     } else { //parent
         close(comm[1]);
         // get bye from child
@@ -87,6 +89,7 @@ void daemonize_server(void) {
             exit(EXIT_FAILURE);
         }
         close(comm[0]);
+		printf("Process daemonized\n");
 
         exit((int)retcode);
     }
@@ -102,7 +105,7 @@ void daemonize_server(void) {
         exit(EXIT_FAILURE);
     }
     
-    openlog("yaul", 0, LOG_DAEMON|LOG_PID);
+	openlog("yaul", 0, LOG_DAEMON|LOG_PID);
     syslog(LOG_INFO, "address %s, port %d", address, port);
 }
 
@@ -136,7 +139,6 @@ int main(int argc, char** argv) {
                 exit (EXIT_SUCCESS);
                 break;
             case 'd':
-                printf("Daemonize process\n");
                 daemonize = 1;
                 break;
         }
@@ -162,11 +164,14 @@ int main(int argc, char** argv) {
      exit (EXIT_FAILURE);
   }
   
-  printf ("Server listening on %s:%u (UDP)\n", address, port);
+  printf ("Server listening now on %s:%u (UDP)\n", address, port);
   
   if (daemonize == 1) {
       daemonize_server();
+  } else {
+	  openlog("yaul", 0, LOG_PID);
   }
+  syslog(LOG_INFO, "Server started");
   
   // main server loop (endless)
   while (1) {
@@ -175,10 +180,9 @@ int main(int argc, char** argv) {
     
     // receive messages
     len = sizeof (cliAddr);
-    n = recvfrom ( s, puffer, BUF, 0,
-                   (struct sockaddr *) &cliAddr, &len );
+    n = recvfrom ( s, puffer, BUF, 0, (struct sockaddr *) &cliAddr, (socklen_t *) &len );
     if (n < 0) {
-       printf ("%s: cannot receive data\n", argv[0] );
+       syslog(LOG_ERR, "cannot receive data");
        continue;
     }
     
@@ -189,9 +193,16 @@ int main(int argc, char** argv) {
     *ptr = '\0';
     
     // output message
-    printf ("%s: [%s:%u] %s \n",
-            loctime, inet_ntoa (cliAddr.sin_addr),
-            ntohs (cliAddr.sin_port), puffer);
+	fp = fopen("/var/log/yaul/yaul.log", "a");
+	if(fp != NULL) {
+	    fprintf(fp, "%s: [%s:%u] %s\n",
+				loctime,
+				inet_ntoa (cliAddr.sin_addr),
+				ntohs (cliAddr.sin_port),
+				puffer);
+		syslog(LOG_INFO, "TEST");;
+		fclose(fp);
+	} else exit(EXIT_FAILURE);
   }
   return EXIT_SUCCESS;
 
