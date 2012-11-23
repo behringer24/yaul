@@ -23,9 +23,11 @@
 #define VERSION "YAUL version 0.1.0 - Yet another UDP logger"
 
 int port = LOCAL_SERVER_PORT;
+
 char *address = "0.0.0.0";
 int daemonize = 0;
 int comm[2];
+int sock = 0;
 char *mp = "0";
 pid_t pid;
 FILE * fp;
@@ -109,45 +111,14 @@ void daemonize_server(void) {
     syslog(LOG_INFO, "address %s, port %d", address, port);
 }
 
-/*
- * 
- */
-int main(int argc, char** argv) {
-    int s, rc, n, len;
-	struct sockaddr_in cliAddr, servAddr;
-	char puffer[BUF];
-	time_t time1;
-	char loctime[BUF];
-	char *ptr;
+void initServer(void) {
+	struct sockaddr_in servAddr;
 	const int y = 1;
-	int opt; 
-    
-    while ((opt = getopt(argc, (char ** const)argv, "b:dhp:v")) != EOF) {
-        switch (opt) {
-            case 'b':
-                address = optarg;
-                break;
-            case 'p':
-                port = atoi(optarg);
-                break;
-            case 'v':
-                print_version();
-                exit (EXIT_SUCCESS);
-                break;
-            case 'h':
-                print_usage();
-                exit (EXIT_SUCCESS);
-                break;
-            case 'd':
-                daemonize = 1;
-                break;
-        }
-    }
-  
-  // create socket
-  s = socket (AF_INET, SOCK_DGRAM, 0);
-  if (s < 0) {
-     printf ("%s: cannot open socket(%s)\n", argv[0], strerror(errno));
+	int rc;
+	
+	sock = socket (AF_INET, SOCK_DGRAM, 0);
+  if (sock < 0) {
+     perror("Cannot open socket\n");
      exit (EXIT_FAILURE);
   }
   // bind local address and port
@@ -157,10 +128,10 @@ int main(int argc, char** argv) {
   }
   servAddr.sin_family = AF_INET;
   servAddr.sin_port = htons (port);
-  setsockopt(s, SOL_SOCKET, SO_REUSEADDR, &y, sizeof(int));
-  rc = bind ( s, (struct sockaddr *) &servAddr, sizeof (servAddr));
+  setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &y, sizeof(int));
+  rc = bind (sock, (struct sockaddr *) &servAddr, sizeof (servAddr));
   if (rc < 0) {
-     printf ("%s: cannot bind port %d (%s)\n", argv[0], port, strerror(errno));
+     fprintf (stderr, "cannot bind port %d\n", port);
      exit (EXIT_FAILURE);
   }
   
@@ -172,38 +143,86 @@ int main(int argc, char** argv) {
 	  openlog("yaul", 0, LOG_PID);
   }
   syslog(LOG_INFO, "Server started");
-  
-  // main server loop (endless)
-  while (1) {
-    // init buffer/
-    memset (puffer, 0, BUF);
-    
-    // receive messages
-    len = sizeof (cliAddr);
-    n = recvfrom ( s, puffer, BUF, 0, (struct sockaddr *) &cliAddr, (socklen_t *) &len );
-    if (n < 0) {
-       syslog(LOG_ERR, "cannot receive data");
-       continue;
-    }
-    
-    // prepare timestamp
-    time(&time1);
-    strncpy(loctime, ctime(&time1), BUF);
-    ptr = strchr(loctime, '\n' );
-    *ptr = '\0';
-    
-    // output message
-	fp = fopen("/var/log/yaul/yaul.log", "a");
-	if(fp != NULL) {
-	    fprintf(fp, "%s: [%s:%u] %s\n",
-				loctime,
-				inet_ntoa (cliAddr.sin_addr),
-				ntohs (cliAddr.sin_port),
-				puffer);
-		syslog(LOG_INFO, "TEST");;
-		fclose(fp);
-	} else exit(EXIT_FAILURE);
+}
+
+void serverLoop(void) {
+	int len, n;
+	char buffer[BUF];
+	struct sockaddr_in cliAddr;
+	time_t time1;
+	char loctime[BUF];
+	char *ptr;
+	
+	while (1) {
+		// init buffer/
+		memset (buffer, 0, BUF);
+
+		// receive messages
+		len = sizeof (cliAddr);
+		n = recvfrom ( sock, buffer, BUF, 0, (struct sockaddr *) &cliAddr, (socklen_t *) &len );
+		if (n < 0) {
+		   syslog(LOG_ERR, "cannot receive data");
+		   continue;
+		}
+
+		// prepare timestamp
+		time(&time1);
+		strncpy(loctime, ctime(&time1), BUF);
+		ptr = strchr(loctime, '\n' );
+		*ptr = '\0';
+
+		// output message
+		fp = fopen("/var/log/yaul/yaul.log", "a");
+		if(fp != NULL) {
+			fprintf(fp, "%s: [%s:%u] %s\n",
+					loctime,
+					inet_ntoa (cliAddr.sin_addr),
+					ntohs (cliAddr.sin_port),
+					buffer);
+			syslog(LOG_INFO, "TEST");;
+			fclose(fp);
+		} else exit(EXIT_FAILURE);
   }
-  return EXIT_SUCCESS;
+}
+
+/**
+ * 
+ * @param argc
+ * @param argv
+ * @return int
+ */
+int main(int argc, char** argv) {
+	int opt; 
+    
+	// Parse options
+    while ((opt = getopt(argc, (char ** const)argv, "b:dhp:v")) != EOF) {
+		switch (opt) {
+			case 'b':
+				address = optarg;
+				break;
+			case 'p':
+				port = atoi(optarg);
+				break;
+			case 'v':
+				print_version();
+				exit (EXIT_SUCCESS);
+				break;
+			case 'h':
+				print_usage();
+				exit (EXIT_SUCCESS);
+				break;
+			case 'd':
+				daemonize = 1;
+				break;
+		}
+    }
+  
+	// create socket
+	initServer();
+  
+	// start server loop (endless)
+	serverLoop();
+  
+	return EXIT_SUCCESS;
 
 }
