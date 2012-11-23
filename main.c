@@ -1,6 +1,9 @@
 /* 
  * File:   main.c
- * Author: pixum
+ * Author: Andreas Behringer
+ * 
+ * (c)2012 Andreas Behringer
+ * Copyright: GPL
  *
  * Created on November 19, 2012, 1:06 PM
  */
@@ -23,20 +26,27 @@
 #define VERSION "YAUL version 0.1.0 - Yet another UDP logger"
 
 int port = LOCAL_SERVER_PORT;
-
 char *address = "0.0.0.0";
 int daemonize = 0;
 int comm[2];
 int sock = 0;
 char *mp = "0";
 pid_t pid;
-FILE * fp;
 
+
+/**
+ * Signal handler for SIGHUP
+ * @param signo
+ */
 static void sig_hup(int signo) {
     syslog(LOG_INFO, "caught SIGHUP");
     //open_file();
 }
 
+/**
+ * Signal handler for SIGINT
+ * @param signo
+ */
 static void sig_int(int signo) {
     syslog(LOG_INFO, "caught SIGINT");
     //close_file();
@@ -45,6 +55,10 @@ static void sig_int(int signo) {
     exit(EXIT_SUCCESS);
 }
 
+/**
+ * Signal handler for SIGTERM
+ * @param signo
+ */
 static void sig_term(int signo) {
     syslog(LOG_INFO, "caught SIGTERM");
     //close_file();
@@ -53,14 +67,23 @@ static void sig_term(int signo) {
     exit(EXIT_SUCCESS);
 }
 
+/**
+ * Print version string to screen
+ */
 void print_version(void) {
     fprintf(stderr, "%s\n", VERSION);
 }
 
+/**
+ * Print usage information to screen
+ */
 void print_usage(void) {
     fprintf(stderr, "Usage: yaul [options]\n-h this help\n-d daemonize\n-p [port] Bind to port number\n-b [ip] Bind top ip address\n-v Version\n\n");
 }
 
+/**
+ * daemonize the server process and terminate parent, call is configured by option -d
+ */
 void daemonize_server(void) {
     char retcode = 0;
     
@@ -111,82 +134,111 @@ void daemonize_server(void) {
     syslog(LOG_INFO, "address %s, port %d", address, port);
 }
 
+/**
+ * Init server, open socket and syslog, bind socket to address and port
+ */
 void initServer(void) {
 	struct sockaddr_in servAddr;
 	const int y = 1;
 	int rc;
 	
 	sock = socket (AF_INET, SOCK_DGRAM, 0);
-  if (sock < 0) {
-     perror("Cannot open socket\n");
-     exit (EXIT_FAILURE);
-  }
-  // bind local address and port
-  if(! inet_pton(AF_INET, address, &servAddr.sin_addr)) {
-     (void)fprintf(stderr, "Invalid address: %s\n", address);
-     exit(EXIT_FAILURE);
-  }
-  servAddr.sin_family = AF_INET;
-  servAddr.sin_port = htons (port);
-  setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &y, sizeof(int));
-  rc = bind (sock, (struct sockaddr *) &servAddr, sizeof (servAddr));
-  if (rc < 0) {
-     fprintf (stderr, "cannot bind port %d\n", port);
-     exit (EXIT_FAILURE);
-  }
-  
-  printf ("Server listening now on %s:%u (UDP)\n", address, port);
-  
-  if (daemonize == 1) {
-      daemonize_server();
-  } else {
-	  openlog("yaul", 0, LOG_PID);
-  }
-  syslog(LOG_INFO, "Server started");
+	if (sock < 0) {
+		perror("Cannot open socket\n");
+		exit (EXIT_FAILURE);
+	}
+	// bind local address and port
+	if(! inet_pton(AF_INET, address, &servAddr.sin_addr)) {
+		(void)fprintf(stderr, "Invalid address: %s\n", address);
+		exit(EXIT_FAILURE);
+	}
+	servAddr.sin_family = AF_INET;
+	servAddr.sin_port = htons (port);
+	setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &y, sizeof(int));
+	rc = bind (sock, (struct sockaddr *) &servAddr, sizeof (servAddr));
+	if (rc < 0) {
+		fprintf (stderr, "cannot bind port %d\n", port);
+		exit (EXIT_FAILURE);
+	}
+
+	printf ("YAUL listening on %s:%u (UDP)\n", address, port);
+
+	if (daemonize == 1) {
+		daemonize_server();
+	} else {
+		openlog("yaul", 0, LOG_PID);
+	}
+	syslog(LOG_INFO, "Server started");
 }
 
+FILE *openLogfile(char *name) {
+	char filename[1024];
+	
+	sprintf(filename, "/var/log/yaul/%s.log", name);
+	return fopen(filename, "a");
+}
+
+void logMessage(char *buffer, char *address, unsigned int port) {
+	FILE * fp;
+	char loctime[BUF];
+	time_t time1;
+	char *ptr;
+	char name[255];
+	
+	// prepare timestamp
+	time(&time1);
+	strncpy(loctime, ctime(&time1), BUF);
+	ptr = strchr(loctime, '\n' );
+	*ptr = '\0';
+	
+	if (sscanf(buffer, "[%[a-zA-Z]]%s", name, buffer) != 2) {
+		strcpy(name, "yaul");
+	}
+	
+	// output message to file
+	fp = openLogfile(name);
+	if(fp != NULL) {
+		fprintf(fp, "%s: [%s:%u] %s\n",
+				loctime,
+				address,
+				port,
+				buffer);
+		syslog(LOG_INFO, "TEST");;
+		fclose(fp);
+	} else {
+		perror("Cannot open logfile");
+		exit(EXIT_FAILURE);
+	}
+			
+}
+
+/**
+ * The UDP receiver loop, running forever, stopped by signals
+ */
 void serverLoop(void) {
 	int len, n;
 	char buffer[BUF];
 	struct sockaddr_in cliAddr;
-	time_t time1;
-	char loctime[BUF];
-	char *ptr;
 	
 	while (1) {
 		// init buffer/
 		memset (buffer, 0, BUF);
 
 		// receive messages
-		len = sizeof (cliAddr);
-		n = recvfrom ( sock, buffer, BUF, 0, (struct sockaddr *) &cliAddr, (socklen_t *) &len );
+		len = sizeof(cliAddr);
+		n = recvfrom(sock, buffer, BUF, 0, (struct sockaddr *) &cliAddr, (socklen_t *) &len );
 		if (n < 0) {
 		   syslog(LOG_ERR, "cannot receive data");
 		   continue;
 		}
 
-		// prepare timestamp
-		time(&time1);
-		strncpy(loctime, ctime(&time1), BUF);
-		ptr = strchr(loctime, '\n' );
-		*ptr = '\0';
-
 		// output message
-		fp = fopen("/var/log/yaul/yaul.log", "a");
-		if(fp != NULL) {
-			fprintf(fp, "%s: [%s:%u] %s\n",
-					loctime,
-					inet_ntoa (cliAddr.sin_addr),
-					ntohs (cliAddr.sin_port),
-					buffer);
-			syslog(LOG_INFO, "TEST");;
-			fclose(fp);
-		} else exit(EXIT_FAILURE);
-  }
+		logMessage(buffer, inet_ntoa(cliAddr.sin_addr), ntohs(cliAddr.sin_port));
+	}
 }
 
 /**
- * 
+ * Server main method
  * @param argc
  * @param argv
  * @return int
@@ -217,7 +269,7 @@ int main(int argc, char** argv) {
 		}
     }
   
-	// create socket
+	// create socket and init server
 	initServer();
   
 	// start server loop (endless)

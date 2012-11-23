@@ -1,7 +1,7 @@
 # yaul Makefile
 
 # Environment 
-PREFIX	= /usr/local
+PREFIX	= /usr
 LOGPATH	= /var/log/yaul
 MKDIR	= mkdir
 CHMOD	= chmod
@@ -18,8 +18,9 @@ all: yaul-$(CONF)
 debug: yaul-Debug
 	
 install:
-	$(MKDIR) $(LOGPATH)
-	$(CHMOD) a+x $(LOGPATH)
+	install -m 755 yaul $(PREFIX)/sbin/yaul
+	$(MKDIR) -p -m 777 $(LOGPATH)
+	@echo Installation complete
 	
 yaul-Release: main.c
 	echo Target: $(CONF)
