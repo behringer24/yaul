@@ -4,14 +4,14 @@
 VERSION = "0.1.0"
 PREFIX	= /usr
 LOGPATH	= "/var/log/yaul"
-ADDRESS	= \"0.0.0.0\"
+ADDRESS	= "0.0.0.0"
 PORT	= 9930
 MKDIR	= mkdir
 CHMOD	= chmod
 CP	= cp
 CC	= gcc
 CCADMIN	= CCadmin
-FLAGS	= -Wall -MMD -MP -DVERSION='$(VERSION)' -DLOGPATH='$(LOGPATH)' -DPORT=$(PORT) -DADDRESS="$(ADDRESS)"
+FLAGS	= -Wall -MMD -MP -DVERSION='$(VERSION)' -DLOGPATH='$(LOGPATH)' -DPORT=$(PORT) -DADDRESS='$(ADDRESS)'
 DFLAGS  = -g
 RFLAGS  = -O2
 CONF	= Release
