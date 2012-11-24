@@ -1,14 +1,17 @@
 # yaul Makefile
 
 # Environment 
+VERSION = "0.1.0"
 PREFIX	= /usr
-LOGPATH	= /var/log/yaul
+LOGPATH	= "/var/log/yaul"
+ADDRESS	= \"0.0.0.0\"
+PORT	= 9930
 MKDIR	= mkdir
 CHMOD	= chmod
 CP	= cp
 CC	= gcc
 CCADMIN	= CCadmin
-FLAGS	= -Wall -MMD -MP
+FLAGS	= -Wall -MMD -MP -DVERSION='$(VERSION)' -DLOGPATH='$(LOGPATH)' -DPORT=$(PORT) -DADDRESS="$(ADDRESS)"
 DFLAGS  = -g
 RFLAGS  = -O2
 CONF	= Release
@@ -23,11 +26,11 @@ install:
 	@echo Installation complete
 	
 yaul-Release: main.c
-	echo Target: $(CONF)
+	@echo Target: $(CONF)
 	$(CC) $(FLAGS) $(RFLAGS) -o yaul main.c
 	
 yaul-Debug: main.c
-	echo Target: $(CONF)
+	@echo Target: $(CONF)
 	$(CC) $(FLAGS) $(DFLAGS) -o yaul main.c
 
 clean:

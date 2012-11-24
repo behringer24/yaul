@@ -21,18 +21,14 @@
 #include <time.h>
 #include <signal.h>
 #include <syslog.h>
-#define LOCAL_SERVER_PORT 9930
+
 #define BUF 1500
-#define VERSION "YAUL version 0.1.0 - Yet another UDP logger"
 
-int port = LOCAL_SERVER_PORT;
-char *address = "0.0.0.0";
+int port = PORT;
+char *address = ADDRESS;
 int daemonize = 0;
-int comm[2];
 int sock = 0;
-char *mp = "0";
-pid_t pid;
-
+char logpath[1024] = LOGPATH;
 
 /**
  * Signal handler for SIGHUP
@@ -40,7 +36,6 @@ pid_t pid;
  */
 static void sig_hup(int signo) {
     syslog(LOG_INFO, "caught SIGHUP");
-    //open_file();
 }
 
 /**
@@ -49,7 +44,6 @@ static void sig_hup(int signo) {
  */
 static void sig_int(int signo) {
     syslog(LOG_INFO, "caught SIGINT");
-    //close_file();
     syslog(LOG_INFO, "exiting");
     closelog();
     exit(EXIT_SUCCESS);
@@ -61,7 +55,6 @@ static void sig_int(int signo) {
  */
 static void sig_term(int signo) {
     syslog(LOG_INFO, "caught SIGTERM");
-    //close_file();
     syslog(LOG_INFO, "exiting");
     closelog();
     exit(EXIT_SUCCESS);
@@ -71,14 +64,20 @@ static void sig_term(int signo) {
  * Print version string to screen
  */
 void print_version(void) {
-    fprintf(stderr, "%s\n", VERSION);
+    fprintf(stderr, "YAUL version %s - Yet another UDP logger\n", VERSION);
 }
 
 /**
  * Print usage information to screen
  */
 void print_usage(void) {
-    fprintf(stderr, "Usage: yaul [options]\n-h this help\n-d daemonize\n-p [port] Bind to port number\n-b [ip] Bind top ip address\n-v Version\n\n");
+    fprintf(stderr, "Usage: yaul [options]\n\
+-h this help\n\
+-d daemonize\n\
+-p [port] Bind to port number (default %u)\n\
+-b [ip] Bind top ip address (default %s)\n\
+-l [path] Logging to path (default %s)\n\
+-v Version\n", PORT, ADDRESS, LOGPATH);
 }
 
 /**
@@ -86,6 +85,9 @@ void print_usage(void) {
  */
 void daemonize_server(void) {
     char retcode = 0;
+	int comm[2];
+	char mp[2];
+	pid_t pid;
     
     // prepare pipe
     if(pipe(comm) == -1) {
@@ -100,11 +102,11 @@ void daemonize_server(void) {
     } else if (pid == 0) { // child
         close(comm[0]);
         // bye to parent
-        mp = (char *)malloc(2);
+        //mp = (char *)malloc(2);
         memset(mp, (char) EXIT_SUCCESS, 1);
         (void)write(comm[1], mp, 1);
         (void)close(comm[1]);
-		free(mp);
+		//free(mp);
     } else { //parent
         close(comm[1]);
         // get bye from child
@@ -174,7 +176,7 @@ void initServer(void) {
 FILE *openLogfile(char *name) {
 	char filename[1024];
 	
-	sprintf(filename, "/var/log/yaul/%s.log", name);
+	sprintf(filename, "%s/%s.log", logpath, name);
 	return fopen(filename, "a");
 }
 
@@ -191,7 +193,7 @@ void logMessage(char *buffer, char *address, unsigned int port) {
 	ptr = strchr(loctime, '\n' );
 	*ptr = '\0';
 	
-	if (sscanf(buffer, "[%[a-zA-Z]]%s", name, buffer) != 2) {
+	if (sscanf(buffer, "[%[a-zA-Z0-9.]]%s", name, buffer) != 2) {
 		strcpy(name, "yaul");
 	}
 	
@@ -244,10 +246,10 @@ void serverLoop(void) {
  * @return int
  */
 int main(int argc, char** argv) {
-	int opt; 
-    
+	int opt;
+	
 	// Parse options
-    while ((opt = getopt(argc, (char ** const)argv, "b:dhp:v")) != EOF) {
+    while ((opt = getopt(argc, (char ** const)argv, "b:dhp:l:v")) != EOF) {
 		switch (opt) {
 			case 'b':
 				address = optarg;
@@ -262,6 +264,9 @@ int main(int argc, char** argv) {
 			case 'h':
 				print_usage();
 				exit (EXIT_SUCCESS);
+				break;
+			case 'l':
+				strcpy(logpath, optarg);
 				break;
 			case 'd':
 				daemonize = 1;
