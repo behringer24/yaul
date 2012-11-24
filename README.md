@@ -21,3 +21,14 @@ Installation of yaul is very simple.
 yaul server binary has write access to that directory
 
 5. run the server and configure itvia the provided options 
+
+Setup an appropriate logrotate pattern in your /etc/logrotate.conf or /etc/logrotate.de
+
+## Message format
+[<logname>]<message>
+
+Log the text in <message> in the logfile /var/log/yaul/<logname>.log
+
+The <logname> must consist of ASCII a-z and A-Z
+
+If the <logname> and the paranthesis [ ] are omitted the default logname is 'yaul'. Same applies if the logname is invalid
