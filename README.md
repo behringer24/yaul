@@ -25,10 +25,10 @@ yaul server binary has write access to that directory
 Setup an appropriate logrotate pattern in your /etc/logrotate.conf or /etc/logrotate.de
 
 ## Message format
-[<logname>]<message>
+\[\<logname\>\]\<message\>
 
-Log the text in <message> in the logfile /var/log/yaul/<logname>.log
+Log the text in \<message\> in the logfile /var/log/yaul/\<logname\>.log
 
-The <logname> must consist of ASCII a-z and A-Z
+The \<logname\> must consist of ASCII a-z and A-Z
 
-If the <logname> and the paranthesis [ ] are omitted the default logname is 'yaul'. Same applies if the logname is invalid
+If the \<logname\> and the paranthesis [ ] are omitted the default logname is 'yaul'. Same applies if the logname is invalid
