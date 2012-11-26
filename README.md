@@ -1,4 +1,4 @@
-# YAUL yet another UDP logger
+# YAUL Yet Another UDP Logger
 
 ## What is it
 YAUL is a simple and lightweight UDP logging daemon for linux written in C.
@@ -12,17 +12,23 @@ solutions.
 Installation of yaul is very simple.
 
 1. Load the sources on your server by cloning from git or download the tar.gz
-
 2. unpack the ressources if you loaded the tar.gz
-
 3. compile sources by typing: make and then make install
-
-4. make sure there is a directory /var/log/yaul and the user that will run the
-yaul server binary has write access to that directory
-
+4. make sure there is a directory /var/log/yaul and the user that will run the yaul server binary has write access to that directory
 5. run the server and configure itvia the provided options 
 
 Setup an appropriate logrotate pattern in your /etc/logrotate.conf or /etc/logrotate.de
+
+## Usage
+```
+    Usage: yaul [options]
+    -h this help
+    -d daemonize
+    -p [port] Bind to port number
+    -b [ip] Bind top ip address
+    -l [path] Logging to path
+    -v Version
+```
 
 ## Message format
 \[\<logname\>\]\<message\>
