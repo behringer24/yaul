@@ -193,7 +193,7 @@ void logMessage(char *buffer, char *address, unsigned int port) {
 	ptr = strchr(loctime, '\n' );
 	*ptr = '\0';
 	
-	if (sscanf(buffer, "[%[a-zA-Z0-9.]]%[^\n\0]", name, buffer) != 2) {
+	if (sscanf(buffer, "[%[a-zA-Z0-9.]]%[^\n]", name, buffer) != 2) {
 		strcpy(name, "yaul");
 	}
 	
