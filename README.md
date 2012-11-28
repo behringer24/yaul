@@ -35,6 +35,13 @@ Setup an appropriate logrotate pattern in your /etc/logrotate.conf or /etc/logro
 
 Log the text in \<message\> in the logfile /var/log/yaul/\<logname\>.log
 
-The \<logname\> must consist of ASCII a-z and A-Z
+The \<logname\> must consist of ASCII a-z, A-Z, 0-9 and the . (dot) for namespacing
 
 If the \<logname\> and the paranthesis [ ] are omitted the default logname is 'yaul'. Same applies if the logname is invalid
+
+## Limitations
+The maximum length of the logname are 255 chars.
+
+The maximum length of the message in total (including logname) is 1500 chars by default. This also depends of the maximum length of UDP messages of your server.
+
+The message is truncated on the first newline char. This means the message cannot consist of multiple lines.
