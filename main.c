@@ -23,12 +23,35 @@
 #include <syslog.h>
 
 #define BUF 1500
+#define NAMELENGTH 255
+#define PATHLENGTH 2048
+#define HANDLEBUFFER 10
+
+struct handlebuffer {
+	char name[NAMELENGTH];
+	FILE * filehandle;
+};
 
 int port = PORT;
 char *address = ADDRESS;
 int daemonize = 0;
 int sock = 0;
-char logpath[1024] = LOGPATH;
+char logpath[PATHLENGTH] = LOGPATH;
+int lastfile = 0;
+struct handlebuffer handles[10];
+
+/**
+ * Close all opened filehandles in cache
+ */
+void closeAllFiles(void) {
+	int i;
+	
+	for(i = 0; i < HANDLEBUFFER; i++) {
+		if (handles[i].filehandle) {
+			fclose(handles[i].filehandle);
+		}
+	}
+}
 
 /**
  * Signal handler for SIGHUP
@@ -36,6 +59,8 @@ char logpath[1024] = LOGPATH;
  */
 static void sig_hup(int signo) {
     syslog(LOG_INFO, "caught SIGHUP");
+	closeAllFiles();
+	memset(handles, 0, sizeof(handles));
 }
 
 /**
@@ -45,6 +70,7 @@ static void sig_hup(int signo) {
 static void sig_int(int signo) {
     syslog(LOG_INFO, "caught SIGINT");
     syslog(LOG_INFO, "exiting");
+	closeAllFiles();
     closelog();
     exit(EXIT_SUCCESS);
 }
@@ -56,6 +82,7 @@ static void sig_int(int signo) {
 static void sig_term(int signo) {
     syslog(LOG_INFO, "caught SIGTERM");
     syslog(LOG_INFO, "exiting");
+	closeAllFiles();
     closelog();
     exit(EXIT_SUCCESS);
 }
@@ -102,15 +129,12 @@ void daemonize_server(void) {
     } else if (pid == 0) { // child
         close(comm[0]);
         // bye to parent
-        //mp = (char *)malloc(2);
         memset(mp, (char) EXIT_SUCCESS, 1);
         (void)write(comm[1], mp, 1);
         (void)close(comm[1]);
-		//free(mp);
     } else { //parent
         close(comm[1]);
         // get bye from child
-
         if(read(comm[0], &retcode, 1) != 1) {
             (void)perror("Unable to read return code");
             exit(EXIT_FAILURE);
@@ -173,19 +197,58 @@ void initServer(void) {
 	syslog(LOG_INFO, "Server started");
 }
 
-FILE *openLogfile(char *name) {
-	char filename[1024];
+/**
+ * Open logfile or return filehandle if file allready opened and in handles
+ * @param char * name
+ * @return FILE *
+ */
+FILE * openLogfile(char *name) {
+	char filename[PATHLENGTH];
+	int i = 0;
 	
-	sprintf(filename, "%s/%s.log", logpath, name);
-	return fopen(filename, "a");
+	// If last message hat same logname just return filehandle
+	if (strcmp(handles[lastfile].name, name) != 0) {
+		// if not search linear in handles array
+		while (i < HANDLEBUFFER && strcmp(handles[i].name, name) != 0) {
+			i++;
+		}
+		
+		// if not found logname in handles array open file
+		if (i == HANDLEBUFFER) {
+			lastfile++;
+			if (lastfile > HANDLEBUFFER - 1) {
+				lastfile = 0;
+			}
+
+			// if position contains opened filehandle close it
+			if (handles[lastfile].filehandle) {
+				fclose(handles[lastfile].filehandle);
+			}
+
+			// open file and store in handles
+			sprintf(filename, "%s/%s.log", logpath, name);
+			strcpy(handles[lastfile].name, name);
+			handles[lastfile].filehandle = fopen(filename, "a");
+		} else {
+			lastfile = i;
+		}
+	}
+	
+	return handles[lastfile].filehandle;
 }
 
+/**
+ * Log message to udp socket
+ * @param char * buffer
+ * @param char * address
+ * @param unsigned int port
+ */
 void logMessage(char *buffer, char *address, unsigned int port) {
-	FILE * fp;
+	FILE * fp = NULL;
 	char loctime[BUF];
 	time_t time1;
 	char *ptr;
-	char name[255];
+	char name[NAMELENGTH];
 	
 	// prepare timestamp
 	time(&time1);
@@ -204,9 +267,9 @@ void logMessage(char *buffer, char *address, unsigned int port) {
 				loctime,
 				address,
 				port,
-				buffer);
-		syslog(LOG_INFO, "TEST");;
-		fclose(fp);
+				buffer);			
+		// flush buffer immediately to allow tail -f on logfiles
+		fflush(fp);
 	} else {
 		perror("Cannot open logfile");
 		exit(EXIT_FAILURE);
@@ -223,7 +286,7 @@ void serverLoop(void) {
 	struct sockaddr_in cliAddr;
 	
 	while (1) {
-		// init buffer/
+		// init buffer
 		memset (buffer, 0, BUF);
 
 		// receive messages
@@ -247,6 +310,8 @@ void serverLoop(void) {
  */
 int main(int argc, char** argv) {
 	int opt;
+	
+	memset(handles, 0, sizeof(handles));
 	
 	// Parse options
     while ((opt = getopt(argc, (char ** const)argv, "b:dhp:l:v")) != EOF) {
