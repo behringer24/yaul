@@ -27,6 +27,7 @@ Setup an appropriate logrotate pattern in your /etc/logrotate.conf or /etc/logro
     -p [port] Bind to port number
     -b [ip] Bind top ip address
     -l [path] Logging to path
+    -s [frequency] log statistics to file yaul.stat every [frequency] logmessage
     -v Version
 ```
 

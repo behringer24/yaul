@@ -27,18 +27,28 @@
 #define PATHLENGTH 2048
 #define HANDLEBUFFER 10
 
+// For buffering opened filehandles
 struct handlebuffer {
 	char name[NAMELENGTH];
 	FILE * filehandle;
 };
 
+// general vars
 int port = PORT;
 char *address = ADDRESS;
-int daemonize = 0;
+unsigned int opt_daemonize = 0;
+unsigned int opt_statistics = 0;
 int sock = 0;
 char logpath[PATHLENGTH] = LOGPATH;
 int lastfile = 0;
 struct handlebuffer handles[10];
+
+// statistic vars
+unsigned int stat_messages_handled = 0;
+unsigned int stat_files_opened = 0;
+unsigned int stat_files_closed = 0;
+unsigned int stat_files_switched = 0;
+time_t stat_start_time = 0;
 
 /**
  * Close all opened filehandles in cache
@@ -49,6 +59,7 @@ void closeAllFiles(void) {
 	for(i = 0; i < HANDLEBUFFER; i++) {
 		if (handles[i].filehandle) {
 			fclose(handles[i].filehandle);
+			stat_files_closed++;
 		}
 	}
 }
@@ -94,6 +105,7 @@ void print_version(void) {
     fprintf(stderr, "YAUL version %s - Yet another UDP logger\n", VERSION);
 }
 
+
 /**
  * Print usage information to screen
  */
@@ -104,6 +116,7 @@ void print_usage(void) {
 -p [port] Bind to port number (default %u)\n\
 -b [ip] Bind top ip address (default %s)\n\
 -l [path] Logging to path (default %s)\n\
+-s [frequency] log statistics to file yaul.stat every [frequency] logmessage\n\
 -v Version\n", PORT, ADDRESS, LOGPATH);
 }
 
@@ -188,8 +201,12 @@ void initServer(void) {
 	}
 
 	printf ("YAUL listening on %s:%u (UDP)\n", address, port);
+	
+	if (opt_statistics > 0) {
+		printf ("Statistics enabled to yaul.stat every %u message\n", opt_statistics);
+	}
 
-	if (daemonize == 1) {
+	if (opt_daemonize == 1) {
 		daemonize_server();
 	} else {
 		openlog("yaul", 0, LOG_PID);
@@ -223,14 +240,18 @@ FILE * openLogfile(char *name) {
 			// if position contains opened filehandle close it
 			if (handles[lastfile].filehandle) {
 				fclose(handles[lastfile].filehandle);
+				stat_files_closed++;
 			}
 
 			// open file and store in handles
 			sprintf(filename, "%s/%s.log", logpath, name);
 			strcpy(handles[lastfile].name, name);
 			handles[lastfile].filehandle = fopen(filename, "a");
+			stat_files_opened++;
+			stat_files_switched++;
 		} else {
 			lastfile = i;
+			stat_files_switched++;
 		}
 	}
 	
@@ -267,7 +288,8 @@ void logMessage(char *buffer, char *address, unsigned int port) {
 				loctime,
 				address,
 				port,
-				buffer);			
+				buffer);
+		stat_messages_handled++;
 		// flush buffer immediately to allow tail -f on logfiles
 		fflush(fp);
 	} else {
@@ -275,6 +297,22 @@ void logMessage(char *buffer, char *address, unsigned int port) {
 		exit(EXIT_FAILURE);
 	}
 			
+}
+
+/**
+ * Log statistic messages
+ */
+void statistics(void) {
+	char statistic_message[BUF];
+	
+	sprintf(statistic_message, "[yaul.stat]messages:%u opened:%u closed:%u switched:%u running:%lu sec average/s:%f2\n",
+			stat_messages_handled,
+			stat_files_opened,
+			stat_files_closed,
+			stat_files_switched,
+			(unsigned int) time(NULL) - stat_start_time,
+			(double) stat_messages_handled / (time(NULL) - stat_start_time));
+	logMessage(statistic_message, address, port);
 }
 
 /**
@@ -299,6 +337,11 @@ void serverLoop(void) {
 
 		// output message
 		logMessage(buffer, inet_ntoa(cliAddr.sin_addr), ntohs(cliAddr.sin_port));
+		
+		// If optional statistics logging is set log every n'th message
+		if (opt_statistics > 0 && stat_messages_handled % opt_statistics == 0) {
+			statistics();
+		}
 	}
 }
 
@@ -312,9 +355,10 @@ int main(int argc, char** argv) {
 	int opt;
 	
 	memset(handles, 0, sizeof(handles));
+	stat_start_time = time(NULL);
 	
 	// Parse options
-    while ((opt = getopt(argc, (char ** const)argv, "b:dhp:l:v")) != EOF) {
+    while ((opt = getopt(argc, (char ** const)argv, "b:dhp:l:vs:")) != EOF) {
 		switch (opt) {
 			case 'b':
 				address = optarg;
@@ -333,8 +377,11 @@ int main(int argc, char** argv) {
 			case 'l':
 				strcpy(logpath, optarg);
 				break;
+			case 's':
+				opt_statistics = atoi(optarg);
+				break;
 			case 'd':
-				daemonize = 1;
+				opt_daemonize = 1;
 				break;
 		}
     }
@@ -346,5 +393,4 @@ int main(int argc, char** argv) {
 	serverLoop();
   
 	return EXIT_SUCCESS;
-
 }
