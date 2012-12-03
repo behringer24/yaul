@@ -46,3 +46,27 @@ The maximum length of the logname are 255 chars.
 The maximum length of the message in total (including logname) is 1500 chars by default. This also depends of the maximum length of UDP messages of your server.
 
 The message is truncated on the first newline char. This means the message cannot consist of multiple lines.
+
+## Logrotate
+The setup of an additional logrotate rule is simple. Just create another role in /etc/logrotate.conf or add a file with the rules for the yaul logfiles in /etc/logrotate.d/
+
+a restart of a daemon is not needed. The rule is used on the next logrotate run.
+
+```
+/var/log/yaul/*.log {
+    compress
+    delaycompress
+    dateext
+    maxage 365
+    rotate 30
+    size=+4096k
+    notifempty
+    missingok
+    create 644 root root
+    postrotate
+     kill -s HUP $(pidof yaul)
+    endscript
+}
+````
+
+This rule will rotate all logs in /var/log/yaul/ that end with .log and are over 4096k in size. The files are extended with a date stamp and kept to a maximum of 365 days. The rotation is performed only if the file is not empty. The first rotation just attaches the date stamp, on the second rotation the file is compressed by gz. The maximum number of rotated files is 30. The rotated files belong to root and are readable by all. There is no error thrown if the files do not exist at all.
