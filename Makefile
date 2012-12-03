@@ -1,7 +1,7 @@
 # yaul Makefile
 
 # Environment 
-VERSION = "0.1.0"
+VERSION = "0.3.0"
 PREFIX	= /usr
 LOGPATH	= "/var/log/yaul"
 ADDRESS	= "0.0.0.0"
