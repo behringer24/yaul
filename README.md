@@ -1,4 +1,4 @@
-# YAUL Yet Another UDP Logger
+# YAUL Yet Another UDP Logger [![Build Status](https://secure.travis-ci.org/behringer24/yaul.png?branch=development)](https://travis-ci.org/behringer24/yaul)
 
 ## What is it
 YAUL is a simple and lightweight UDP logging daemon for linux written in C.
