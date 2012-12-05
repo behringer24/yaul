@@ -15,6 +15,7 @@
 #include <netdb.h>
 #include <stdio.h>
 #include <unistd.h>
+#include <getopt.h>
 #include <string.h>
 #include <stdlib.h>
 #include <errno.h>
@@ -26,6 +27,24 @@
 #define NAMELENGTH 255
 #define PATHLENGTH 2048
 #define HANDLEBUFFER 10
+#define FLUSH 1
+
+// The following defines are usually set in Makefile
+#ifndef PORT
+#define PORT 9930
+#endif
+
+#ifndef ADDRESS
+#define ADDRESS "0.0.0.0"
+#endif
+
+#ifndef LOGPATH
+#define LOGPATH "/var/log/yaul"
+#endif
+
+#ifndef VERSION
+#define VERSION "n/a"
+#endif
 
 // For buffering opened filehandles
 struct handlebuffer {
@@ -38,6 +57,7 @@ int port = PORT;
 char *address = ADDRESS;
 unsigned int opt_daemonize = 0;
 unsigned int opt_statistics = 0;
+unsigned int opt_flush = FLUSH;
 int sock = 0;
 char logpath[PATHLENGTH] = LOGPATH;
 int lastfile = 0;
@@ -111,13 +131,14 @@ void print_version(void) {
  */
 void print_usage(void) {
     fprintf(stderr, "Usage: yaul [options]\n\
--h this help\n\
--d daemonize\n\
--p [port] Bind to port number (default %u)\n\
--b [ip] Bind top ip address (default %s)\n\
--l [path] Logging to path (default %s)\n\
--s [frequency] log statistics to file yaul.stat every [frequency] logmessage\n\
--v Version\n", PORT, ADDRESS, LOGPATH);
+-h, -?, --help             display this help information\n\
+-d, --daemonize            daemonize server process\n\
+-p, --port=PORT            bind to port number (default %u)\n\
+-b, --bind=IP              bind to ip address (default %s)\n\
+-l, --logpath=PATH         logging to path (default %s)\n\
+-s, --statistics=FREQUENCY log statistics to file yaul.stat after every [frequency] logmessage\n\
+-f, --flush=FREQUENCY      flush output stream after every [frequency] logmessage\n\
+-v, --version              display version information\n", PORT, ADDRESS, LOGPATH);
 }
 
 /**
@@ -225,6 +246,11 @@ FILE * openLogfile(char *name) {
 	
 	// If last message hat same logname just return filehandle
 	if (strcmp(handles[lastfile].name, name) != 0) {
+		// implicit flush stream buffer of last logfile used if flushing is set > 1
+		if (opt_flush > 1) {
+			fflush(handles[lastfile].filehandle);
+		}
+		
 		// if not search linear in handles array
 		while (i < HANDLEBUFFER && strcmp(handles[i].name, name) != 0) {
 			i++;
@@ -291,7 +317,9 @@ void logMessage(char *buffer, char *address, unsigned int port) {
 				buffer);
 		stat_messages_handled++;
 		// flush buffer immediately to allow tail -f on logfiles
-		fflush(fp);
+		if (stat_messages_handled % opt_flush == 0) {
+			fflush(fp);
+		}
 	} else {
 		perror("Cannot open logfile");
 		exit(EXIT_FAILURE);
@@ -353,12 +381,29 @@ void serverLoop(void) {
  */
 int main(int argc, char** argv) {
 	int opt;
+	int opt_index;
+	static struct option long_options[] = {
+		{"bind", required_argument, 0, 'b'},
+		{"port", required_argument, 0, 'p'},
+		{"version", no_argument, 0, 'v'},
+		{"help", no_argument, 0, 'h'},
+		{"logpath", required_argument, 0, 'l'},
+		{"statistics", required_argument, 0, 's'},
+		{"flush", required_argument, 0, 'f'},
+		{"daemonize", no_argument, 0, 'd'},
+		{0, 0, 0, 0}
+	};
 	
 	memset(handles, 0, sizeof(handles));
 	stat_start_time = time(NULL);
 	
 	// Parse options
-    while ((opt = getopt(argc, (char ** const)argv, "b:dhp:l:vs:")) != EOF) {
+    while ((opt = getopt_long(
+			argc, 
+			(char ** const)argv, 
+			"b:dh?p:l:vs:f:", 
+			long_options, 
+			&opt_index)) != EOF) {
 		switch (opt) {
 			case 'b':
 				address = optarg;
@@ -370,6 +415,7 @@ int main(int argc, char** argv) {
 				print_version();
 				exit (EXIT_SUCCESS);
 				break;
+			case '?':
 			case 'h':
 				print_usage();
 				exit (EXIT_SUCCESS);
@@ -379,6 +425,9 @@ int main(int argc, char** argv) {
 				break;
 			case 's':
 				opt_statistics = atoi(optarg);
+				break;
+			case 'f':
+				opt_flush = atoi(optarg);
 				break;
 			case 'd':
 				opt_daemonize = 1;

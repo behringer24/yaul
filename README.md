@@ -22,13 +22,14 @@ Setup an appropriate logrotate pattern in your /etc/logrotate.conf or /etc/logro
 ## Usage
 ```
     Usage: yaul [options]
-    -h this help
-    -d daemonize
-    -p [port] Bind to port number
-    -b [ip] Bind top ip address
-    -l [path] Logging to path
-    -s [frequency] log statistics to file yaul.stat every [frequency] logmessage
-    -v Version
+    -h, -?, --help             display command line help information
+    -d, --daemonize            daemonize server process
+    -p, --port=PORT            bind to port number (default %u)
+    -b, --bind=IP              bind to ip address (default %s)
+    -l, --logpath=PATH         logging to path (default %s)
+    -s, --statistics=FREQUENCY log statistics to file yaul.stat after every [frequency] logmessage
+    -f, --flush=FREQUENCY      flush output stream after every [frequency] logmessage
+    -v, --version              display version information
 ```
 
 ## Message format
