@@ -11,6 +11,7 @@ CHMOD	= chmod
 CP	= cp
 CC	= gcc
 CCADMIN	= CCadmin
+REDIS   = hiredis/hiredis.c hiredis/net.c hiredis/sds.c
 FLAGS	= -Wall -MMD -MP -DVERSION='$(VERSION)' -DLOGPATH='$(LOGPATH)' -DPORT=$(PORT) -DADDRESS='$(ADDRESS)'
 DFLAGS  = -g
 RFLAGS  = -O2
@@ -27,11 +28,11 @@ install:
 	
 yaul-Release: main.c
 	@echo Target: $(CONF)
-	$(CC) $(FLAGS) $(RFLAGS) -o yaul main.c
+	$(CC) $(FLAGS) $(RFLAGS) -o yaul main.c $(REDIS)
 	
 yaul-Debug: main.c
 	@echo Target: $(CONF)
-	$(CC) $(FLAGS) $(DFLAGS) -o yaul main.c
+	$(CC) $(FLAGS) $(DFLAGS) -o yaul main.c $(REDIS)
 
 clean:
 	rm yaul

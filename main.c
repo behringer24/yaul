@@ -23,6 +23,8 @@
 #include <signal.h>
 #include <syslog.h>
 
+#include "hiredis/hiredis.h"
+
 #define BUF 1500
 #define NAMELENGTH 255
 #define PATHLENGTH 2048
@@ -58,6 +60,11 @@ char *address = ADDRESS;
 unsigned int opt_daemonize = 0;
 unsigned int opt_statistics = 0;
 unsigned int opt_flush = FLUSH;
+unsigned int opt_redis = 0;
+redisContext *redis_context = NULL;
+char *redis_ip = "127.0.0.1";
+int redis_port = 6379;
+struct timeval redis_timeout = { 1, 500000 }; // 1.5 seconds
 int sock = 0;
 char logpath[PATHLENGTH] = LOGPATH;
 int lastfile = 0;
@@ -76,11 +83,14 @@ time_t stat_start_time = 0;
 void closeAllFiles(void) {
 	int i;
 	
-	for(i = 0; i < HANDLEBUFFER; i++) {
-		if (handles[i].filehandle) {
-			fclose(handles[i].filehandle);
-			stat_files_closed++;
+	if (!opt_redis) {
+		for(i = 0; i < HANDLEBUFFER; i++) {
+			if (handles[i].filehandle) {
+				fclose(handles[i].filehandle);
+				stat_files_closed++;
+			}
 		}
+		memset(handles, 0, sizeof(handles));
 	}
 }
 
@@ -91,7 +101,6 @@ void closeAllFiles(void) {
 static void sig_hup(int signo) {
     syslog(LOG_INFO, "caught SIGHUP");
 	closeAllFiles();
-	memset(handles, 0, sizeof(handles));
 }
 
 /**
@@ -125,7 +134,6 @@ void print_version(void) {
     fprintf(stderr, "YAUL version %s - Yet another UDP logger\n", VERSION);
 }
 
-
 /**
  * Print usage information to screen
  */
@@ -138,6 +146,8 @@ void print_usage(void) {
 -l, --logpath=PATH         logging to path (default %s)\n\
 -s, --statistics=FREQUENCY log statistics to file yaul.stat after every [frequency] logmessage\n\
 -f, --flush=FREQUENCY      flush output stream after every [frequency] logmessage\n\
+-r, --redisip=IP           connect to redis server at IP and implicit enable logging to redis\n\
+-o, --redisport=PORT       connect to redis server at PORT and implicit enable logging to redis\n\
 -v, --version              display version information\n", PORT, ADDRESS, LOGPATH);
 }
 
@@ -194,6 +204,13 @@ void daemonize_server(void) {
     syslog(LOG_INFO, "address %s, port %d", address, port);
 }
 
+void openRedis(void) {
+	redis_context = redisConnectWithTimeout(redis_ip, redis_port, redis_timeout);
+	if (redis_context->err) {
+		syslog(LOG_ERR, "Connection error: %s\n", redis_context->errstr);
+    }	
+}
+
 /**
  * Init server, open socket and syslog, bind socket to address and port
  */
@@ -226,6 +243,16 @@ void initServer(void) {
 	if (opt_statistics > 0) {
 		printf ("Statistics enabled to yaul.stat every %u message\n", opt_statistics);
 	}
+	
+	if (opt_redis) {
+		openRedis();
+		if (redis_context->err) {
+			fprintf(stderr, "Redis connection error: %s\n", redis_context->errstr);
+			exit (EXIT_FAILURE);
+		} else {
+			printf("Logging to Redis enabled\n");
+		}
+	}
 
 	if (opt_daemonize == 1) {
 		daemonize_server();
@@ -234,6 +261,7 @@ void initServer(void) {
 	}
 	syslog(LOG_INFO, "Server started");
 }
+
 
 /**
  * Open logfile or return filehandle if file allready opened and in handles
@@ -284,6 +312,42 @@ FILE * openLogfile(char *name) {
 	return handles[lastfile].filehandle;
 }
 
+void logMessageFile(char *name, char *message, char *loctime, char *address, unsigned int port) {
+	FILE * fp = NULL;
+
+	fp = openLogfile(name);
+	if(fp != NULL) {
+		fprintf(fp, "%s: [%s:%u] %s\n",
+				loctime,
+				address,
+				port,
+				message);
+		stat_messages_handled++;
+		// flush buffer immediately to allow tail -f on logfiles
+		if (stat_messages_handled % opt_flush == 0) {
+			fflush(fp);
+		}
+	} else {
+		perror("Cannot open logfile");
+		syslog(LOG_ERR, "Cannot open logfile: %s\n", name);
+		exit(EXIT_FAILURE);
+	}
+}
+
+void logMessageRedis(char *name, char *message, char *loctime, char *address, unsigned int port) {
+	redisReply *reply;
+	
+	/* PING server */
+    reply = redisCommand(redis_context, "LPUSH %s %s", name, message);
+	stat_messages_handled++;
+	if (reply != NULL) {
+		freeReplyObject(reply);
+	} else {
+		syslog(LOG_ERR, "Logging to redis failed at server %s:%u", redis_ip, redis_port);
+		openRedis();
+	}
+}
+
 /**
  * Log message to udp socket
  * @param char * buffer
@@ -291,7 +355,7 @@ FILE * openLogfile(char *name) {
  * @param unsigned int port
  */
 void logMessage(char *buffer, char *address, unsigned int port) {
-	FILE * fp = NULL;
+	
 	char loctime[BUF];
 	time_t time1;
 	char *ptr;
@@ -307,23 +371,13 @@ void logMessage(char *buffer, char *address, unsigned int port) {
 		strcpy(name, "yaul");
 	}
 	
-	// output message to file
-	fp = openLogfile(name);
-	if(fp != NULL) {
-		fprintf(fp, "%s: [%s:%u] %s\n",
-				loctime,
-				address,
-				port,
-				buffer);
-		stat_messages_handled++;
-		// flush buffer immediately to allow tail -f on logfiles
-		if (stat_messages_handled % opt_flush == 0) {
-			fflush(fp);
-		}
+	if (opt_redis) {
+		logMessageRedis(name, buffer, loctime, address, port);
 	} else {
-		perror("Cannot open logfile");
-		exit(EXIT_FAILURE);
+	// output message to file
+		logMessageFile(name, buffer, loctime, address, port);
 	}
+	
 			
 }
 
@@ -391,6 +445,8 @@ int main(int argc, char** argv) {
 		{"statistics", required_argument, 0, 's'},
 		{"flush", required_argument, 0, 'f'},
 		{"daemonize", no_argument, 0, 'd'},
+		{"redisip", required_argument, 0, 'r'},
+		{"redisport", required_argument, 0, 'o'},
 		{0, 0, 0, 0}
 	};
 	
@@ -401,7 +457,7 @@ int main(int argc, char** argv) {
     while ((opt = getopt_long(
 			argc, 
 			(char ** const)argv, 
-			"b:dh?p:l:vs:f:", 
+			"b:dh?p:l:vs:f:r:o:", 
 			long_options, 
 			&opt_index)) != EOF) {
 		switch (opt) {
@@ -431,6 +487,14 @@ int main(int argc, char** argv) {
 				break;
 			case 'd':
 				opt_daemonize = 1;
+				break;
+			case 'r':
+				redis_ip = optarg;
+				opt_redis = 1;
+				break;
+			case 'o':
+				redis_port = atoi(optarg);
+				opt_redis = 1;
 				break;
 		}
     }
