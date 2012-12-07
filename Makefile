@@ -1,7 +1,11 @@
-# yaul Makefile
+# YAUL Makefile
+# Author: Andreas Behringer
+# 
+# (c)2012 Andreas Behringer
+# Copyright: GPL see included LICENSE file
 
 # Environment 
-VERSION = "0.4.0"
+VERSION = "0.5.0"
 PREFIX	= /usr
 LOGPATH	= "/var/log/yaul"
 ADDRESS	= "0.0.0.0"
@@ -29,11 +33,18 @@ install:
 yaul-Release: main.c
 	@echo Target: $(CONF)
 	$(CC) $(FLAGS) $(RFLAGS) -o yaul main.c $(REDIS)
+	@echo Build complete
 	
 yaul-Debug: main.c
 	@echo Target: $(CONF)
 	$(CC) $(FLAGS) $(DFLAGS) -o yaul main.c $(REDIS)
+	@echo Build complete
 
 clean:
 	rm yaul
 	rm yaul.d
+
+test:
+	@echo Starting test	
+	yaul --version
+	@echo Test end
