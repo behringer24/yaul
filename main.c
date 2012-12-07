@@ -3,7 +3,7 @@
  * Author: Andreas Behringer
  * 
  * (c)2012 Andreas Behringer
- * Copyright: GPL
+ * Copyright: GPL see included LICENSE file
  *
  * Created on November 19, 2012, 1:06 PM
  */
@@ -64,6 +64,7 @@ unsigned int opt_redis = 0;
 redisContext *redis_context = NULL;
 char *redis_ip = "127.0.0.1";
 int redis_port = 6379;
+int redis_ttl = 0;
 struct timeval redis_timeout = { 1, 500000 }; // 1.5 seconds
 int sock = 0;
 char logpath[PATHLENGTH] = LOGPATH;
@@ -96,7 +97,7 @@ void closeAllFiles(void) {
 
 /**
  * Signal handler for SIGHUP
- * @param signo
+ * @param int signo
  */
 static void sig_hup(int signo) {
     syslog(LOG_INFO, "caught SIGHUP");
@@ -105,7 +106,7 @@ static void sig_hup(int signo) {
 
 /**
  * Signal handler for SIGINT
- * @param signo
+ * @param int signo
  */
 static void sig_int(int signo) {
     syslog(LOG_INFO, "caught SIGINT");
@@ -117,7 +118,7 @@ static void sig_int(int signo) {
 
 /**
  * Signal handler for SIGTERM
- * @param signo
+ * @param int signo
  */
 static void sig_term(int signo) {
     syslog(LOG_INFO, "caught SIGTERM");
@@ -146,13 +147,13 @@ void print_usage(void) {
 -l, --logpath=PATH         logging to path (default %s)\n\
 -s, --statistics=FREQUENCY log statistics to file yaul.stat after every [frequency] logmessage\n\
 -f, --flush=FREQUENCY      flush output stream after every [frequency] logmessage\n\
--r, --redisip=IP           connect to redis server at IP and implicit enable logging to redis\n\
--o, --redisport=PORT       connect to redis server at PORT and implicit enable logging to redis\n\
--v, --version              display version information\n", PORT, ADDRESS, LOGPATH);
+-r, --redis-ip=IP           connect to redis server at IP and implicit enable logging to redis (default %s)\n\
+-o, --redis-port=PORT       connect to redis server at PORT and implicit enable logging to redis (default %u)\n\
+-v, --version              display version information\n", PORT, ADDRESS, LOGPATH, redis_ip, redis_port);
 }
 
 /**
- * daemonize the server process and terminate parent, call is configured by option -d
+ * Daemonize the server process and terminate parent, call is configured by option -d
  */
 void daemonize_server(void) {
     char retcode = 0;
@@ -204,6 +205,11 @@ void daemonize_server(void) {
     syslog(LOG_INFO, "address %s, port %d", address, port);
 }
 
+/**
+ * Open connection to Redis server
+ * 
+ * Errors are handled outside to keep server running if connection fails
+ */
 void openRedis(void) {
 	redis_context = redisConnectWithTimeout(redis_ip, redis_port, redis_timeout);
 	if (redis_context->err) {
@@ -312,6 +318,15 @@ FILE * openLogfile(char *name) {
 	return handles[lastfile].filehandle;
 }
 
+/**
+ * Log message to file
+ * 
+ * @param char * name Name of logfile
+ * @param char * message Message to be logged
+ * @param char * loctime Timestring to prepend
+ * @param char * address IP address of client
+ * @param unsigned int port Port of client
+ */
 void logMessageFile(char *name, char *message, char *loctime, char *address, unsigned int port) {
 	FILE * fp = NULL;
 
@@ -334,14 +349,37 @@ void logMessageFile(char *name, char *message, char *loctime, char *address, uns
 	}
 }
 
+/**
+ * Log message to Redis
+ * 
+ * @param char * name Name of log
+ * @param char * message Message to be logged
+ * @param char * loctime Timestring to prepend
+ * @param char * address IP address of client
+ * @param unsigned int port Port of client
+ */
 void logMessageRedis(char *name, char *message, char *loctime, char *address, unsigned int port) {
 	redisReply *reply;
+	char logtime[BUF];
+	time_t rawtime;
+	struct tm * timeinfo;
+	
+	time(&rawtime);
+	timeinfo = localtime(&rawtime);
+	strftime(logtime, BUF, "%Y-%m-%d", timeinfo);
+	
+	//sprintf(message, "%s %s", loctime, message);
 	
 	/* PING server */
-    reply = redisCommand(redis_context, "LPUSH %s %s", name, message);
+    reply = redisCommand(redis_context, "LPUSH %s.%s %s>%s", name, logtime, loctime, message);
 	stat_messages_handled++;
 	if (reply != NULL) {
 		freeReplyObject(reply);
+		if (redis_ttl > 0) {
+			reply = redisCommand(redis_context, "EXPIRE %s.%s %u", name, logtime, redis_ttl);
+			freeReplyObject(reply);
+		}
+		// @todo catch redis reply for ttl error
 	} else {
 		syslog(LOG_ERR, "Logging to redis failed at server %s:%u", redis_ip, redis_port);
 		openRedis();
@@ -349,32 +387,32 @@ void logMessageRedis(char *name, char *message, char *loctime, char *address, un
 }
 
 /**
- * Log message to udp socket
+ * Log message from UDP socket depending on destination
+ * 
  * @param char * buffer
  * @param char * address
  * @param unsigned int port
  */
 void logMessage(char *buffer, char *address, unsigned int port) {
-	
 	char loctime[BUF];
-	time_t time1;
-	char *ptr;
+	time_t rawtime;
+	struct tm * timeinfo;
 	char name[NAMELENGTH];
 	
 	// prepare timestamp
-	time(&time1);
-	strncpy(loctime, ctime(&time1), BUF);
-	ptr = strchr(loctime, '\n' );
-	*ptr = '\0';
+	time(&rawtime);
+	timeinfo = localtime(&rawtime);
+	strftime(loctime, BUF, "%Y-%m-%d %H:%M:%S", timeinfo);
 	
 	if (sscanf(buffer, "[%[a-zA-Z0-9.]]%[^\n]", name, buffer) != 2) {
 		strcpy(name, "yaul");
 	}
 	
 	if (opt_redis) {
+		// output message to Redis
 		logMessageRedis(name, buffer, loctime, address, port);
 	} else {
-	// output message to file
+		// output message to file
 		logMessageFile(name, buffer, loctime, address, port);
 	}
 	
@@ -429,13 +467,15 @@ void serverLoop(void) {
 
 /**
  * Server main method
- * @param argc
- * @param argv
+ * 
+ * @param int argc
+ * @param char ** argv
  * @return int
  */
 int main(int argc, char** argv) {
 	int opt;
 	int opt_index;
+	
 	static struct option long_options[] = {
 		{"bind", required_argument, 0, 'b'},
 		{"port", required_argument, 0, 'p'},
@@ -445,8 +485,9 @@ int main(int argc, char** argv) {
 		{"statistics", required_argument, 0, 's'},
 		{"flush", required_argument, 0, 'f'},
 		{"daemonize", no_argument, 0, 'd'},
-		{"redisip", required_argument, 0, 'r'},
-		{"redisport", required_argument, 0, 'o'},
+		{"redis-ip", required_argument, 0, 'r'},
+		{"redis-port", required_argument, 0, 'o'},
+		{"redis-ttl", required_argument, 0, 't'},
 		{0, 0, 0, 0}
 	};
 	
@@ -457,7 +498,7 @@ int main(int argc, char** argv) {
     while ((opt = getopt_long(
 			argc, 
 			(char ** const)argv, 
-			"b:dh?p:l:vs:f:r:o:", 
+			"b:dh?p:l:vs:f:r:o:t:", 
 			long_options, 
 			&opt_index)) != EOF) {
 		switch (opt) {
@@ -494,6 +535,10 @@ int main(int argc, char** argv) {
 				break;
 			case 'o':
 				redis_port = atoi(optarg);
+				opt_redis = 1;
+				break;
+			case 't':
+				redis_ttl = atoi(optarg);
 				opt_redis = 1;
 				break;
 		}
