@@ -48,35 +48,35 @@
 #define VERSION "n/a"
 #endif
 
-// For buffering opened filehandles
+// Struct for buffering opened filehandles
 struct handlebuffer {
 	char name[NAMELENGTH];
 	FILE * filehandle;
 };
 
 // general vars
-int port = PORT;
-char *address = ADDRESS;
-unsigned int opt_daemonize = 0;
-unsigned int opt_statistics = 0;
-unsigned int opt_flush = FLUSH;
-unsigned int opt_redis = 0;
-redisContext *redis_context = NULL;
-char *redis_ip = "127.0.0.1";
-int redis_port = 6379;
-int redis_ttl = 0;
+int port = PORT;							// the port yaul will be listening on
+char *address = ADDRESS;					// the address the server is bound to
+unsigned int opt_daemonize = 0;				// option: daemonize server
+unsigned int opt_statistics = 0;			// option: write statistics
+unsigned int opt_flush = FLUSH;				// flush logfile buffer every n'th msg
+unsigned int opt_redis = 0;					// log to redis instead of files
+redisContext *redis_context = NULL;			// context of opened redis connection
+char *redis_ip = "127.0.0.1";				// ip address of redis server
+int redis_port = 6379;						// port of redis server
+int redis_ttl = 0;							// ttl of redis message lists
 struct timeval redis_timeout = { 1, 500000 }; // 1.5 seconds
-int sock = 0;
-char logpath[PATHLENGTH] = LOGPATH;
-int lastfile = 0;
-struct handlebuffer handles[10];
+int sock = 0;								// the UDP socket
+char logpath[PATHLENGTH] = LOGPATH;			// the path to the logfiles
+int lastfile = 0;							// last used file in handlebuffer
+struct handlebuffer handles[HANDLEBUFFER];	// buffer of opened filehandles
 
-// statistic vars
-unsigned int stat_messages_handled = 0;
-unsigned int stat_files_opened = 0;
-unsigned int stat_files_closed = 0;
-unsigned int stat_files_switched = 0;
-time_t stat_start_time = 0;
+// statistic vars hold information since server start
+unsigned int stat_messages_handled = 0;		// messages handled and stored
+unsigned int stat_files_opened = 0;			// files opened
+unsigned int stat_files_closed = 0;			// files closed
+unsigned int stat_files_switched = 0;		// number of logfile switches
+time_t stat_start_time = 0;					// timestamp server was started
 
 /**
  * Close all opened filehandles in cache
@@ -139,6 +139,7 @@ void print_version(void) {
  * Print usage information to screen
  */
 void print_usage(void) {
+	print_version();
     fprintf(stderr, "Usage: yaul [options]\n\
 -h, -?, --help             display this help information\n\
 -d, --daemonize            daemonize server process\n\
@@ -147,8 +148,9 @@ void print_usage(void) {
 -l, --logpath=PATH         logging to path (default %s)\n\
 -s, --statistics=FREQUENCY log statistics to file yaul.stat after every [frequency] logmessage\n\
 -f, --flush=FREQUENCY      flush output stream after every [frequency] logmessage\n\
--r, --redis-ip=IP           connect to redis server at IP and implicit enable logging to redis (default %s)\n\
--o, --redis-port=PORT       connect to redis server at PORT and implicit enable logging to redis (default %u)\n\
+-r, --redis-ip=IP          connect to redis server at IP and implicit enable logging to redis (default %s)\n\
+-o, --redis-port=PORT      connect to redis server at PORT and implicit enable logging to redis (default %u)\n\
+-t, --redis-ttl=TTL        the TTL in seconds of the dayly lists in redis, starting on last log message added, 0 = persist\n\
 -v, --version              display version information\n", PORT, ADDRESS, LOGPATH, redis_ip, redis_port);
 }
 
@@ -213,7 +215,7 @@ void daemonize_server(void) {
 void openRedis(void) {
 	redis_context = redisConnectWithTimeout(redis_ip, redis_port, redis_timeout);
 	if (redis_context->err) {
-		syslog(LOG_ERR, "Connection error: %s\n", redis_context->errstr);
+		syslog(LOG_ERR, "Redis connection error: %s\n", redis_context->errstr);
     }	
 }
 
