@@ -346,7 +346,7 @@ void logMessageFile(char *name, char *message, char *loctime, char *address, uns
 
 	fp = openLogfile(name);
 	if(fp != NULL) {
-		fprintf(fp, "%s: [%s:%u] %s\n",
+		fprintf(fp, "%s [%s:%u] %s\n",
 				loctime,
 				address,
 				port,
