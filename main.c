@@ -96,6 +96,15 @@ void closeAllFiles(void) {
 }
 
 /**
+ * Close Redis connection if configured to use Redis as backend
+ */
+void closeRedis(void) {
+	if (opt_redis) {
+		redisFree(redis_context);
+	}
+}
+
+/**
  * Signal handler for SIGHUP
  * @param int signo
  */
@@ -112,6 +121,7 @@ static void sig_int(int signo) {
     syslog(LOG_INFO, "caught SIGINT");
     syslog(LOG_INFO, "exiting");
 	closeAllFiles();
+	closeRedis();
     closelog();
     exit(EXIT_SUCCESS);
 }
@@ -124,6 +134,7 @@ static void sig_term(int signo) {
     syslog(LOG_INFO, "caught SIGTERM");
     syslog(LOG_INFO, "exiting");
 	closeAllFiles();
+	closeRedis();
     closelog();
     exit(EXIT_SUCCESS);
 }
@@ -256,6 +267,7 @@ void initServer(void) {
 		openRedis();
 		if (redis_context->err) {
 			fprintf(stderr, "Redis connection error: %s\n", redis_context->errstr);
+			closeRedis();
 			exit (EXIT_FAILURE);
 		} else {
 			printf("Logging to Redis enabled\n");
