@@ -5,7 +5,7 @@
 # Copyright: GPL see included LICENSE file
 
 # Environment 
-VERSION = "0.5.0"
+VERSION = "0.6.0"
 PREFIX	= /usr
 LOGPATH	= "/var/log/yaul"
 ADDRESS	= "0.0.0.0"
