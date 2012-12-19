@@ -195,7 +195,7 @@ void daemonize_server(void) {
         close(comm[1]);
         // get bye from child
         if(read(comm[0], &retcode, 1) != 1) {
-            (void)perror("Unable to read return code");
+            (void)perror("Unable to read return code from child");
             exit(EXIT_FAILURE);
         }
         close(comm[0]);
