@@ -24,6 +24,8 @@
 #include <syslog.h>
 
 #include "hiredis/hiredis.h"
+#include "hashtable/hashtable.h"
+#include "hashtable/hashtable_itr.h"
 
 #define BUF 1500
 #define NAMELENGTH 255
@@ -68,8 +70,9 @@ int redis_ttl = 0;							// ttl of redis message lists
 struct timeval redis_timeout = { 1, 500000 }; // 1.5 seconds
 int sock = 0;								// the UDP socket
 char logpath[PATHLENGTH] = LOGPATH;			// the path to the logfiles
-int lastfile = 0;							// last used file in handlebuffer
-struct handlebuffer handles[HANDLEBUFFER];	// buffer of opened filehandles
+struct handlebuffer * lastfile = NULL;		// last used file in handlebuffer
+//struct handlebuffer handles[HANDLEBUFFER];	// buffer of opened filehandles
+struct hashtable *handles;
 
 // statistic vars hold information since server start
 unsigned int stat_messages_handled = 0;		// messages handled and stored
@@ -78,21 +81,43 @@ unsigned int stat_files_closed = 0;			// files closed
 unsigned int stat_files_switched = 0;		// number of logfile switches
 time_t stat_start_time = 0;					// timestamp server was started
 
+static int cmpKeys(void *a, void *b) {
+	char *val_a = (char *) a;
+	char *val_b = (char *) b;
+	
+	return (0 == strcmp(val_a, val_b));
+}
+
+static unsigned int hashKey(void *k) {
+	int i = 0;
+	int h = 0;
+	char *key = (char *) k;
+	
+	for (i=0; i<strlen(key); i++) {
+		h += h * 256 + key[i];
+	}
+	
+	return h;
+}
+
 /**
  * Close all opened filehandles in cache
  */
 void closeAllFiles(void) {
-	int i;
+	struct hashtable_itr *itr;
+	struct handlebuffer * handle;
 	
+	itr = hashtable_iterator(handles);
 	if (!opt_redis) {
-		for(i = 0; i < HANDLEBUFFER; i++) {
-			if (handles[i].filehandle) {
-				fclose(handles[i].filehandle);
+		if (hashtable_count(handles) > 0) {
+			do {
+				handle = hashtable_iterator_value(itr);
+				fclose(handle->filehandle);
 				stat_files_closed++;
-			}
+			} while (hashtable_iterator_remove(itr));			
 		}
-		memset(handles, 0, sizeof(handles));
 	}
+	free(itr);
 }
 
 /**
@@ -227,6 +252,8 @@ void initServer(void) {
 	const int y = 1;
 	int rc;
 	
+	handles = create_hashtable(HANDLEBUFFER, hashKey, cmpKeys);
+	
 	sock = socket (AF_INET, SOCK_DGRAM, 0);
 	if (sock < 0) {
 		perror("Cannot open socket\n");
@@ -278,46 +305,37 @@ void initServer(void) {
  */
 FILE * openLogfile(char *name) {
 	char filename[PATHLENGTH];
-	int i = 0;
 	
 	// If last message hat same logname just return filehandle
-	if (strcmp(handles[lastfile].name, name) != 0) {
+	if (lastfile == NULL || strcmp(lastfile->name, name) != 0) {
 		// implicit flush stream buffer of last logfile used if flushing is set > 1
-		if (opt_flush > 1) {
-			fflush(handles[lastfile].filehandle);
+		if (opt_flush > 1 && lastfile->filehandle != NULL) {
+			fflush(lastfile->filehandle);
 		}
 		
 		// if not search linear in handles array
-		while (i < HANDLEBUFFER && strcmp(handles[i].name, name) != 0) {
-			i++;
-		}
+		lastfile = hashtable_search(handles, name);		
 		
 		// if not found logname in handles array open file
-		if (i == HANDLEBUFFER) {
-			lastfile++;
-			if (lastfile > HANDLEBUFFER - 1) {
-				lastfile = 0;
-			}
-
-			// if position contains opened filehandle close it
-			if (handles[lastfile].filehandle) {
-				fclose(handles[lastfile].filehandle);
-				stat_files_closed++;
-			}
-
+		if (!lastfile) {
 			// open file and store in handles
+			lastfile = malloc(sizeof (struct handlebuffer));
 			sprintf(filename, "%s/%s.log", logpath, name);
-			strcpy(handles[lastfile].name, name);
-			handles[lastfile].filehandle = fopen(filename, "a");
-			stat_files_opened++;
-			stat_files_switched++;
+			lastfile->filehandle = fopen(filename, "a");
+			if (lastfile->filehandle) {
+				strcpy(lastfile->name, name);
+				hashtable_insert(handles, name, lastfile);
+				stat_files_opened++;
+				stat_files_switched++;
+			} else {
+				free(lastfile);
+			}
 		} else {
-			lastfile = i;
 			stat_files_switched++;
 		}
 	}
 	
-	return handles[lastfile].filehandle;
+	return lastfile->filehandle;
 }
 
 /**
@@ -331,7 +349,7 @@ FILE * openLogfile(char *name) {
  */
 void logMessageFile(char *name, char *message, char *loctime, char *address, unsigned int port) {
 	FILE * fp = NULL;
-
+	
 	fp = openLogfile(name);
 	if(fp != NULL) {
 		fprintf(fp, "%s: [%s:%u] %s\n",
@@ -492,8 +510,7 @@ int main(int argc, char** argv) {
 		{"redis-ttl", required_argument, 0, 't'},
 		{0, 0, 0, 0}
 	};
-	
-	memset(handles, 0, sizeof(handles));
+		
 	stat_start_time = time(NULL);
 	
 	// Parse options
