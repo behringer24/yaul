@@ -70,6 +70,7 @@ int redis_ttl = 0;							// ttl of redis message lists
 struct timeval redis_timeout = { 1, 500000 }; // 1.5 seconds
 int sock = 0;								// the UDP socket
 char logpath[PATHLENGTH] = LOGPATH;			// the path to the logfiles
+int buffersize = HANDLEBUFFER;
 struct handlebuffer * lastfile = NULL;		// last used file in handlebuffer
 //struct handlebuffer handles[HANDLEBUFFER];	// buffer of opened filehandles
 struct hashtable *handles;
@@ -81,13 +82,21 @@ unsigned int stat_files_closed = 0;			// files closed
 unsigned int stat_files_switched = 0;		// number of logfile switches
 time_t stat_start_time = 0;					// timestamp server was started
 
+/**
+ * Compare function for hashtable key comparison
+ * @param void * a
+ * @param void * b
+ * @return bool
+ */
 static int cmpKeys(void *a, void *b) {
-	char *val_a = (char *) a;
-	char *val_b = (char *) b;
-	
-	return (0 == strcmp(val_a, val_b));
+	return (0 == strcmp(a, b));
 }
 
+/**
+ * Hashfunction
+ * @param void * k
+ * @return int
+ */
 static unsigned int hashKey(void *k) {
 	int i = 0;
 	int h = 0;
@@ -121,6 +130,17 @@ void closeAllFiles(void) {
 }
 
 /**
+ * Cleanup and exit
+ */
+void shutdownServer(void) {
+	syslog(LOG_INFO, "exiting");
+	closeAllFiles();
+	hashtable_destroy(handles, 1);
+    closelog();
+    exit(EXIT_SUCCESS);
+}
+
+/**
  * Signal handler for SIGHUP
  * @param int signo
  */
@@ -135,10 +155,7 @@ static void sig_hup(int signo) {
  */
 static void sig_int(int signo) {
     syslog(LOG_INFO, "caught SIGINT");
-    syslog(LOG_INFO, "exiting");
-	closeAllFiles();
-    closelog();
-    exit(EXIT_SUCCESS);
+    shutdownServer();
 }
 
 /**
@@ -147,10 +164,7 @@ static void sig_int(int signo) {
  */
 static void sig_term(int signo) {
     syslog(LOG_INFO, "caught SIGTERM");
-    syslog(LOG_INFO, "exiting");
-	closeAllFiles();
-    closelog();
-    exit(EXIT_SUCCESS);
+    shutdownServer();
 }
 
 /**
@@ -252,7 +266,7 @@ void initServer(void) {
 	const int y = 1;
 	int rc;
 	
-	handles = create_hashtable(HANDLEBUFFER, hashKey, cmpKeys);
+	handles = create_hashtable(buffersize, hashKey, cmpKeys);
 	
 	sock = socket (AF_INET, SOCK_DGRAM, 0);
 	if (sock < 0) {
