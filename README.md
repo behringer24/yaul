@@ -3,7 +3,7 @@
 ## What is it
 YAUL is a simple and lightweight UDP logging daemon for linux written in C.
 
-It takes UDP messages in a simple specified format and writes them to logfiles.
+It takes UDP messages in a simple format and writes them to logfiles.
 
 YAUL is an easy solution to implement non blocking high performance logging
 solutions.
