@@ -30,7 +30,8 @@
 #define BUF 1500
 #define NAMELENGTH 255
 #define PATHLENGTH 2048
-#define HANDLEBUFFER 10
+#define HANDLEBUFFER 20
+#define MAXHANDLES 20
 #define FLUSH 1
 
 // The following defines are usually set in Makefile
@@ -70,10 +71,10 @@ int redis_ttl = 0;							// ttl of redis message lists
 struct timeval redis_timeout = { 1, 500000 }; // 1.5 seconds
 int sock = 0;								// the UDP socket
 char logpath[PATHLENGTH] = LOGPATH;			// the path to the logfiles
-int buffersize = HANDLEBUFFER;
+int buffersize = HANDLEBUFFER;				// configurable size of handle hashtable
 struct handlebuffer * lastfile = NULL;		// last used file in handlebuffer
-//struct handlebuffer handles[HANDLEBUFFER];	// buffer of opened filehandles
-struct hashtable *handles;
+struct hashtable *handles;					// hashtable for buffering open filetables
+unsigned int maxhandles = MAXHANDLES;		// maximum number of opened files
 
 // statistic vars hold information since server start
 unsigned int stat_messages_handled = 0;		// messages handled and stored
@@ -190,7 +191,9 @@ void print_usage(void) {
 -r, --redis-ip=IP          connect to redis server at IP and implicit enable logging to redis (default %s)\n\
 -o, --redis-port=PORT      connect to redis server at PORT and implicit enable logging to redis (default %u)\n\
 -t, --redis-ttl=TTL        the TTL in seconds of the dayly lists in redis, starting on last log message added, 0 = persist\n\
--v, --version              display version information\n", PORT, ADDRESS, LOGPATH, redis_ip, redis_port);
+-a, --hashtable-size=NUM   size of the hashtable handlebuffer (default %u)\n\
+-m, --max-handles=NUM      maximum number of opened files (default %u)\n\
+-v, --version              display version information\n", PORT, ADDRESS, LOGPATH, redis_ip, redis_port, HANDLEBUFFER, MAXHANDLES);
 }
 
 /**
@@ -522,6 +525,8 @@ int main(int argc, char** argv) {
 		{"redis-ip", required_argument, 0, 'r'},
 		{"redis-port", required_argument, 0, 'o'},
 		{"redis-ttl", required_argument, 0, 't'},
+		{"hashtable-size", required_argument, 0, 'a'},
+		{"max-handles", required_argument, 0, 'm'},
 		{0, 0, 0, 0}
 	};
 		
@@ -573,6 +578,12 @@ int main(int argc, char** argv) {
 			case 't':
 				redis_ttl = atoi(optarg);
 				opt_redis = 1;
+				break;
+			case 'a':
+				handlebuffer = atoi(optarg);
+				break;
+			case 'm':
+				maxhandles = atoi(optarg);
 				break;
 		}
     }
