@@ -580,7 +580,7 @@ int main(int argc, char** argv) {
 				opt_redis = 1;
 				break;
 			case 'a':
-				handlebuffer = atoi(optarg);
+				buffersize = atoi(optarg);
 				break;
 			case 'm':
 				maxhandles = atoi(optarg);
