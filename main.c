@@ -536,7 +536,7 @@ int main(int argc, char** argv) {
     while ((opt = getopt_long(
 			argc, 
 			(char ** const)argv, 
-			"b:dh?p:l:vs:f:r:o:t:", 
+			"b:dh?p:l:vs:f:r:o:t:a:m:", 
 			long_options, 
 			&opt_index)) != EOF) {
 		switch (opt) {
