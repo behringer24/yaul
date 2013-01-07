@@ -111,6 +111,39 @@ static unsigned int hashKey(void *k) {
 }
 
 /**
+ * Create random integer number in range from - to
+ * @param int from
+ * @param int to
+ * @return int
+ */
+int randRange(int from, int to) {
+	return from + (rand() % (to - from +1));
+}
+
+/**
+ * close a random entry in the handlebuffer
+ */
+void closeRandomFile(void) {
+	struct hashtable_itr *itr;
+	struct handlebuffer * handle;
+	unsigned int i = 0;
+	
+	itr = hashtable_iterator(handles);
+	if (!opt_redis) {
+		if (hashtable_count(handles) > 0) {
+			for (i = 0; i < randRange(0, hashtable_count(handles)); i++) {
+				hashtable_iterator_advance(itr);
+			}
+			handle = hashtable_iterator_value(itr);
+			fclose(handle->filehandle);
+			stat_files_closed++;
+			hashtable_iterator_remove(itr);			
+		}
+	}
+	free(itr);
+}
+
+/**
  * Close all opened filehandles in cache
  */
 void closeAllFiles(void) {
@@ -335,6 +368,10 @@ FILE * openLogfile(char *name) {
 		
 		// if not found logname in handles array open file
 		if (!lastfile) {
+			// check if max handles reached
+			if (hashtable_count(handles) >= maxhandles) {
+				closeRandomFile();
+			}
 			// open file and store in handles
 			lastfile = malloc(sizeof (struct handlebuffer));
 			sprintf(filename, "%s/%s.log", logpath, name);
