@@ -110,14 +110,22 @@ static unsigned int hashKey(void *k) {
 	return h;
 }
 
-/**
- * Create random integer number in range from - to
- * @param int from
- * @param int to
- * @return int
- */
-int randRange(int from, int to) {
-	return from + (rand() % (to - from +1));
+void hashtableDump(struct hashtable *h) {
+	struct hashtable_itr *itr;
+	struct handlebuffer * handle;
+	char * key;
+	
+	if (hashtable_count(h) > 0) {
+		itr = hashtable_iterator(h);
+		fprintf(stderr, "\nBegin dump\n");
+
+		do {
+			handle = hashtable_iterator_value(itr);
+			fprintf(stderr, "Key %s: Filename %s\n", (char *) hashtable_iterator_key(itr), handle->name);
+		} while (hashtable_iterator_advance(itr));
+
+		free(itr);
+	}
 }
 
 /**
@@ -128,19 +136,31 @@ void closeRandomFile(void) {
 	struct handlebuffer * handle;
 	unsigned int i = 0;
 	
-	itr = hashtable_iterator(handles);
 	if (!opt_redis) {
-		if (hashtable_count(handles) > 0) {
-			for (i = 0; i < randRange(0, hashtable_count(handles)); i++) {
-				hashtable_iterator_advance(itr);
-			}
-			handle = hashtable_iterator_value(itr);
+		// only run if more than one opened file
+		if (hashtable_count(handles) > 1) {
+			// do not close actual used file
+			do {
+				itr = hashtable_iterator(handles);
+				for (i = 0; i < rand() % (hashtable_count(handles) + 1); i++) {
+					hashtable_iterator_advance(itr);
+				}
+				handle = hashtable_iterator_value(itr);
+				fprintf(stderr, "Random file %s actual %s (key %s)\n", handle->name, lastfile->name, (char *) hashtable_iterator_key(itr));
+				free(itr);
+			} while (strcmp(handle->name, lastfile->name) == 0);
+			
 			fclose(handle->filehandle);
+			fprintf(stderr, "Closed %s\n", handle->name);
 			stat_files_closed++;
-			hashtable_iterator_remove(itr);			
+			hashtableDump(handles);
+			hashtable_remove(handles, handle->name);
+			hashtableDump(handles);
+			fprintf(stderr, "Count hashtable after %u\n", hashtable_count(handles));
+			//hashtable_iterator_remove(itr);			
+			
 		}
 	}
-	free(itr);
 }
 
 /**
@@ -149,7 +169,7 @@ void closeRandomFile(void) {
 void closeAllFiles(void) {
 	struct hashtable_itr *itr;
 	struct handlebuffer * handle;
-	
+	hashtableDump(handles);
 	itr = hashtable_iterator(handles);
 	if (!opt_redis) {
 		if (hashtable_count(handles) > 0) {
@@ -160,7 +180,7 @@ void closeAllFiles(void) {
 			} while (hashtable_iterator_remove(itr));			
 		}
 	}
-	free(itr);
+	free(itr);hashtableDump(handles);
 }
 
 /**
@@ -355,38 +375,43 @@ void initServer(void) {
  */
 FILE * openLogfile(char *name) {
 	char filename[PATHLENGTH];
+	struct handlebuffer * newfile = NULL;
 	
-	// If last message hat same logname just return filehandle
+	// If last message has same logname just return filehandle
 	if (lastfile == NULL || strcmp(lastfile->name, name) != 0) {
 		// implicit flush stream buffer of last logfile used if flushing is set > 1
-		if (opt_flush > 1 && lastfile->filehandle != NULL) {
+		if (lastfile != NULL && opt_flush > 1 && lastfile->filehandle != NULL) {
 			fflush(lastfile->filehandle);
 		}
 		
 		// if not search linear in handles array
-		lastfile = hashtable_search(handles, name);		
+		newfile = hashtable_search(handles, name);		
 		
 		// if not found logname in handles array open file
-		if (!lastfile) {
+		if (!newfile) {
 			// check if max handles reached
 			if (hashtable_count(handles) >= maxhandles) {
 				closeRandomFile();
 			}
 			// open file and store in handles
-			lastfile = malloc(sizeof (struct handlebuffer));
+			newfile = malloc(sizeof (struct handlebuffer));
 			sprintf(filename, "%s/%s.log", logpath, name);
-			lastfile->filehandle = fopen(filename, "a");
-			if (lastfile->filehandle) {
-				strcpy(lastfile->name, name);
-				hashtable_insert(handles, name, lastfile);
+			newfile->filehandle = fopen(filename, "a");
+			if (newfile->filehandle) {
+				strcpy(newfile->name, name);
+				fprintf(stderr, "Opened %s\n", newfile->name);
+				hashtable_insert(handles, name, newfile);
 				stat_files_opened++;
 				stat_files_switched++;
 			} else {
+				free(newfile);
 				free(lastfile);
 			}
 		} else {
 			stat_files_switched++;
 		}
+		
+		lastfile = newfile;
 	}
 	
 	return lastfile->filehandle;
