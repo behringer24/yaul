@@ -24,12 +24,14 @@
 #include <syslog.h>
 
 #include "hiredis/hiredis.h"
+#include "hashtable/hashtable.h"
+#include "hashtable/hashtable_itr.h"
 
 #define BUF 1500
-#define MAXLENGTH 2000
 #define NAMELENGTH 255
 #define PATHLENGTH 2048
-#define HANDLEBUFFER 10
+#define HANDLEBUFFER 20
+#define MAXHANDLES 20
 #define FLUSH 1
 
 // The following defines are usually set in Makefile
@@ -69,8 +71,10 @@ int redis_ttl = 0;							// ttl of redis message lists
 struct timeval redis_timeout = { 1, 500000 }; // 1.5 seconds
 int sock = 0;								// the UDP socket
 char logpath[PATHLENGTH] = LOGPATH;			// the path to the logfiles
-int lastfile = 0;							// last used file in handlebuffer
-struct handlebuffer handles[HANDLEBUFFER];	// buffer of opened filehandles
+int buffersize = HANDLEBUFFER;				// configurable size of handle hashtable
+struct handlebuffer * lastfile = NULL;		// last used file in handlebuffer
+struct hashtable *handles;					// hashtable for buffering open filetables
+unsigned int maxhandles = MAXHANDLES;		// maximum number of opened files
 
 // statistic vars hold information since server start
 unsigned int stat_messages_handled = 0;		// messages handled and stored
@@ -80,29 +84,113 @@ unsigned int stat_files_switched = 0;		// number of logfile switches
 time_t stat_start_time = 0;					// timestamp server was started
 
 /**
- * Close all opened filehandles in cache
+ * Compare function for hashtable key comparison
+ * @param void * a
+ * @param void * b
+ * @return bool
  */
-void closeAllFiles(void) {
-	int i;
+static int cmpKeys(void *a, void *b) {
+	return (0 == strcmp(a, b));
+}
+
+/**
+ * Hashfunction
+ * @param void * k
+ * @return int
+ */
+static unsigned int hashKey(void *k) {
+	int i = 0;
+	unsigned int h = 0;
+	char *key = (char *) k;
 	
-	if (!opt_redis) {
-		for(i = 0; i < HANDLEBUFFER; i++) {
-			if (handles[i].filehandle) {
-				fclose(handles[i].filehandle);
-				stat_files_closed++;
-			}
-		}
-		memset(handles, 0, sizeof(handles));
+	for (i=0; i<strlen(key); i++) {
+		h += h * 256 + key[i];
+	}
+	return h;
+}
+
+/**
+ * Dump hashtable to stderr, for debugging purposes
+ * @param h
+ */
+void hashtableDump(struct hashtable *h) {
+	struct hashtable_itr *itr;
+	struct handlebuffer * handle;
+	char * key;
+	
+	if (hashtable_count(h) > 0) {
+		itr = hashtable_iterator(h);
+		fprintf(stderr, "\nBegin dump\n");
+
+		do {
+			handle = hashtable_iterator_value(itr);
+			key = hashtable_iterator_key(itr);
+			fprintf(stderr, "Key %s: Filename %s\n", key, handle->name);
+		} while (hashtable_iterator_advance(itr));
+
+		free(itr);
 	}
 }
 
 /**
- * Close Redis connection if configured to use Redis as backend
+ * close a random filehandle entry in the handlebuffer
  */
-void closeRedis(void) {
-	if (opt_redis) {
-		redisFree(redis_context);
+void closeRandomFile(void) {
+	struct hashtable_itr *itr = NULL;
+	struct handlebuffer * handle = NULL;
+	unsigned int i = 0;
+	unsigned int r = 0;
+	
+	if (!opt_redis) {
+		// only run if more than one opened file
+		if (hashtable_count(handles) > 1) {
+			// do not close actual used file
+			do {
+				itr = hashtable_iterator(handles);
+				r = rand() % (hashtable_count(handles));
+				for (i = 0; i < r; i++) {
+					hashtable_iterator_advance(itr);
+				}
+				handle = hashtable_iterator_value(itr);
+				free(itr);
+			} while (strcmp(handle->name, lastfile->name) == 0);
+			
+			fclose(handle->filehandle);
+			stat_files_closed++;
+			hashtable_remove(handles, handle->name);
+		}
 	}
+}
+
+/**
+ * Close all opened filehandles in cache
+ */
+void closeAllFiles(void) {
+	struct hashtable_itr *itr;
+	struct handlebuffer * handle;
+	
+	itr = hashtable_iterator(handles);
+	if (!opt_redis) {
+		if (hashtable_count(handles) > 0) {
+			do {
+				handle = hashtable_iterator_value(itr);
+				fclose(handle->filehandle);
+				stat_files_closed++;
+			} while (hashtable_iterator_remove(itr));			
+		}
+	}
+	free(itr);
+}
+
+/**
+ * Cleanup and exit
+ */
+void shutdownServer(void) {
+	syslog(LOG_INFO, "exiting");
+	closeAllFiles();
+	hashtable_destroy(handles, 1);
+    closelog();
+    exit(EXIT_SUCCESS);
 }
 
 /**
@@ -120,11 +208,7 @@ static void sig_hup(int signo) {
  */
 static void sig_int(int signo) {
     syslog(LOG_INFO, "caught SIGINT");
-    syslog(LOG_INFO, "exiting");
-	closeAllFiles();
-	closeRedis();
-    closelog();
-    exit(EXIT_SUCCESS);
+    shutdownServer();
 }
 
 /**
@@ -133,18 +217,14 @@ static void sig_int(int signo) {
  */
 static void sig_term(int signo) {
     syslog(LOG_INFO, "caught SIGTERM");
-    syslog(LOG_INFO, "exiting");
-	closeAllFiles();
-	closeRedis();
-    closelog();
-    exit(EXIT_SUCCESS);
+    shutdownServer();
 }
 
 /**
  * Print version string to screen
  */
 void print_version(void) {
-    fprintf(stderr, "YAUL version %s - Yet another UDP logger\n", VERSION);
+    fprintf(stdout, "YAUL version %s - Yet another UDP logger\n", VERSION);
 }
 
 /**
@@ -152,7 +232,7 @@ void print_version(void) {
  */
 void print_usage(void) {
 	print_version();
-    fprintf(stderr, "Usage: yaul [options]\n\
+    fprintf(stdout, "Usage: yaul [options]\n\
 -h, -?, --help             display this help information\n\
 -d, --daemonize            daemonize server process\n\
 -p, --port=PORT            bind to port number (default %u)\n\
@@ -163,7 +243,9 @@ void print_usage(void) {
 -r, --redis-ip=IP          connect to redis server at IP and implicit enable logging to redis (default %s)\n\
 -o, --redis-port=PORT      connect to redis server at PORT and implicit enable logging to redis (default %u)\n\
 -t, --redis-ttl=TTL        the TTL in seconds of the dayly lists in redis, starting on last log message added, 0 = persist\n\
--v, --version              display version information\n", PORT, ADDRESS, LOGPATH, redis_ip, redis_port);
+-a, --hashtable-size=NUM   size of the hashtable handlebuffer (default %u)\n\
+-m, --max-handles=NUM      maximum number of opened files (default %u)\n\
+-v, --version              display version information\n", PORT, ADDRESS, LOGPATH, redis_ip, redis_port, HANDLEBUFFER, MAXHANDLES);
 }
 
 /**
@@ -239,6 +321,8 @@ void initServer(void) {
 	const int y = 1;
 	int rc;
 	
+	handles = create_hashtable(buffersize, hashKey, cmpKeys);
+	
 	sock = socket (AF_INET, SOCK_DGRAM, 0);
 	if (sock < 0) {
 		perror("Cannot open socket\n");
@@ -268,7 +352,6 @@ void initServer(void) {
 		openRedis();
 		if (redis_context->err) {
 			fprintf(stderr, "Redis connection error: %s\n", redis_context->errstr);
-			closeRedis();
 			exit (EXIT_FAILURE);
 		} else {
 			printf("Logging to Redis enabled\n");
@@ -291,46 +374,45 @@ void initServer(void) {
  */
 FILE * openLogfile(char *name) {
 	char filename[PATHLENGTH];
-	int i = 0;
+	struct handlebuffer * newfile = NULL;
 	
-	// If last message hat same logname just return filehandle
-	if (strcmp(handles[lastfile].name, name) != 0) {
+	// If last message has same logname just return filehandle
+	if (lastfile == NULL || strcmp(lastfile->name, name) != 0) {
 		// implicit flush stream buffer of last logfile used if flushing is set > 1
-		if (opt_flush > 1) {
-			fflush(handles[lastfile].filehandle);
+		if (lastfile != NULL && opt_flush > 1 && lastfile->filehandle != NULL) {
+			fflush(lastfile->filehandle);
 		}
 		
 		// if not search linear in handles array
-		while (i < HANDLEBUFFER && strcmp(handles[i].name, name) != 0) {
-			i++;
-		}
+		newfile = hashtable_search(handles, name);		
 		
 		// if not found logname in handles array open file
-		if (i == HANDLEBUFFER) {
-			lastfile++;
-			if (lastfile > HANDLEBUFFER - 1) {
-				lastfile = 0;
+		if (!newfile) {
+			// check if max handles reached
+			if (hashtable_count(handles) >= maxhandles) {
+				closeRandomFile();
 			}
-
-			// if position contains opened filehandle close it
-			if (handles[lastfile].filehandle) {
-				fclose(handles[lastfile].filehandle);
-				stat_files_closed++;
-			}
-
 			// open file and store in handles
+			newfile = malloc(sizeof (struct handlebuffer));
 			sprintf(filename, "%s/%s.log", logpath, name);
-			strcpy(handles[lastfile].name, name);
-			handles[lastfile].filehandle = fopen(filename, "a");
-			stat_files_opened++;
-			stat_files_switched++;
+			newfile->filehandle = fopen(filename, "a");
+			if (newfile->filehandle) {
+				strcpy(newfile->name, name);
+				hashtable_insert(handles, newfile->name, newfile);
+				stat_files_opened++;
+				stat_files_switched++;
+			} else {
+				free(newfile);
+				free(lastfile);
+			}
 		} else {
-			lastfile = i;
 			stat_files_switched++;
 		}
+		
+		lastfile = newfile;
 	}
-	
-	return handles[lastfile].filehandle;
+
+	return lastfile->filehandle;
 }
 
 /**
@@ -342,13 +424,16 @@ FILE * openLogfile(char *name) {
  * @param char * address IP address of client
  * @param unsigned int port Port of client
  */
-inline void logMessageFile(char *name, char *message) {
+void logMessageFile(char *name, char *message, char *loctime, char *address, unsigned int port) {
 	FILE * fp = NULL;
-
+	
 	fp = openLogfile(name);
 	if(fp != NULL) {
-		// Writing log line to file
-		fprintf(fp, "%s\n", message);
+		fprintf(fp, "%s: [%s:%u] %s\n",
+				loctime,
+				address,
+				port,
+				message);
 		stat_messages_handled++;
 		// flush buffer immediately to allow tail -f on logfiles
 		if (stat_messages_handled % opt_flush == 0) {
@@ -370,7 +455,7 @@ inline void logMessageFile(char *name, char *message) {
  * @param char * address IP address of client
  * @param unsigned int port Port of client
  */
-inline void logMessageRedis(char *name, char *message) {
+void logMessageRedis(char *name, char *message, char *loctime, char *address, unsigned int port) {
 	redisReply *reply;
 	char logtime[BUF];
 	time_t rawtime;
@@ -380,8 +465,10 @@ inline void logMessageRedis(char *name, char *message) {
 	timeinfo = localtime(&rawtime);
 	strftime(logtime, BUF, "%Y-%m-%d", timeinfo);
 	
-	// Write log line to redis
-    reply = redisCommand(redis_context, "LPUSH %s.%s %s", name, logtime, message);
+	//sprintf(message, "%s %s", loctime, message);
+	
+	/* PING server */
+    reply = redisCommand(redis_context, "LPUSH %s.%s %s>%s", name, logtime, loctime, message);
 	stat_messages_handled++;
 	if (reply != NULL) {
 		freeReplyObject(reply);
@@ -403,9 +490,8 @@ inline void logMessageRedis(char *name, char *message) {
  * @param char * address
  * @param unsigned int port
  */
-inline void logMessage(char *buffer, char *address, unsigned int port) {
+void logMessage(char *buffer, char *address, unsigned int port) {
 	char loctime[BUF];
-	char message[MAXLENGTH];
 	time_t rawtime;
 	struct tm * timeinfo;
 	char name[NAMELENGTH];
@@ -419,18 +505,13 @@ inline void logMessage(char *buffer, char *address, unsigned int port) {
 		strcpy(name, "yaul");
 	}
 	
-	// Build standard logline
-	sprintf(message, "%s [%s:%u] %s", loctime, address, port, buffer);
-	
 	if (opt_redis) {
 		// output message to Redis
-		logMessageRedis(name, message);
+		logMessageRedis(name, buffer, loctime, address, port);
 	} else {
 		// output message to file
-		logMessageFile(name, message);
+		logMessageFile(name, buffer, loctime, address, port);
 	}
-	
-			
 }
 
 /**
@@ -502,17 +583,18 @@ int main(int argc, char** argv) {
 		{"redis-ip", required_argument, 0, 'r'},
 		{"redis-port", required_argument, 0, 'o'},
 		{"redis-ttl", required_argument, 0, 't'},
+		{"hashtable-size", required_argument, 0, 'a'},
+		{"max-handles", required_argument, 0, 'm'},
 		{0, 0, 0, 0}
 	};
-	
-	memset(handles, 0, sizeof(handles));
+		
 	stat_start_time = time(NULL);
 	
 	// Parse options
     while ((opt = getopt_long(
 			argc, 
 			(char ** const)argv, 
-			"b:dh?p:l:vs:f:r:o:t:", 
+			"b:dh?p:l:vs:f:r:o:t:a:m:", 
 			long_options, 
 			&opt_index)) != EOF) {
 		switch (opt) {
@@ -554,6 +636,12 @@ int main(int argc, char** argv) {
 			case 't':
 				redis_ttl = atoi(optarg);
 				opt_redis = 1;
+				break;
+			case 'a':
+				buffersize = atoi(optarg);
+				break;
+			case 'm':
+				maxhandles = atoi(optarg);
 				break;
 		}
     }

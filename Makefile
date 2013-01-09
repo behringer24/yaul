@@ -5,7 +5,7 @@
 # Copyright: GPL see included LICENSE file
 
 # Environment 
-VERSION = "0.6.0"
+VERSION = "0.8.0"
 PREFIX	= /usr
 LOGPATH	= "/var/log/yaul"
 ADDRESS	= "0.0.0.0"
@@ -15,7 +15,7 @@ CHMOD	= chmod
 CP	= cp
 CC	= gcc
 CCADMIN	= CCadmin
-REDIS   = hiredis/hiredis.c hiredis/net.c hiredis/sds.c
+DEPS    = hiredis/hiredis.c hiredis/net.c hiredis/sds.c hashtable/hashtable.c hashtable/hashtable_itr.c
 FLAGS	= -Wall -MMD -MP -DVERSION='$(VERSION)' -DLOGPATH='$(LOGPATH)' -DPORT=$(PORT) -DADDRESS='$(ADDRESS)'
 DFLAGS  = -g
 RFLAGS  = -O2
@@ -32,12 +32,12 @@ install:
 	
 yaul-Release: main.c
 	@echo Target: $(CONF)
-	$(CC) $(FLAGS) $(RFLAGS) -o yaul main.c $(REDIS)
+	$(CC) $(FLAGS) $(RFLAGS) -o yaul main.c $(DEPS) -lm
 	@echo Build complete
 	
 yaul-Debug: main.c
 	@echo Target: $(CONF)
-	$(CC) $(FLAGS) $(DFLAGS) -o yaul main.c $(REDIS)
+	$(CC) $(FLAGS) $(DFLAGS) -o yaul main.c $(DEPS) -lm
 	@echo Build complete
 
 clean:
