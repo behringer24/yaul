@@ -396,16 +396,12 @@ FILE * openLogfile(char *name) {
  * @param char * address IP address of client
  * @param unsigned int port Port of client
  */
-void logMessageFile(char *name, char *message, char *loctime, char *address, unsigned int port) {
+inline void logMessageFile(char *name, char *message) {
 	FILE * fp = NULL;
 	
 	fp = openLogfile(name);
 	if(fp != NULL) {
-		fprintf(fp, "%s: [%s:%u] %s\n",
-				loctime,
-				address,
-				port,
-				message);
+		fprintf(fp, "%s\n", message);
 		stat_messages_handled++;
 		// flush buffer immediately to allow tail -f on logfiles
 		if (stat_messages_handled % opt_flush == 0) {
@@ -427,7 +423,7 @@ void logMessageFile(char *name, char *message, char *loctime, char *address, uns
  * @param char * address IP address of client
  * @param unsigned int port Port of client
  */
-void logMessageRedis(char *name, char *message, char *loctime, char *address, unsigned int port) {
+inline void logMessageRedis(char *name, char *message) {
 	redisReply *reply;
 	char logtime[BUF];
 	time_t rawtime;
@@ -437,10 +433,8 @@ void logMessageRedis(char *name, char *message, char *loctime, char *address, un
 	timeinfo = localtime(&rawtime);
 	strftime(logtime, BUF, "%Y-%m-%d", timeinfo);
 	
-	//sprintf(message, "%s %s", loctime, message);
-	
-	/* PING server */
-    reply = redisCommand(redis_context, "LPUSH %s.%s %s>%s", name, logtime, loctime, message);
+	// Write logline to redis list
+    reply = redisCommand(redis_context, "LPUSH %s.%s %s", name, logtime, message);
 	stat_messages_handled++;
 	if (reply != NULL) {
 		freeReplyObject(reply);
@@ -462,8 +456,9 @@ void logMessageRedis(char *name, char *message, char *loctime, char *address, un
  * @param char * address
  * @param unsigned int port
  */
-void logMessage(char *buffer, char *address, unsigned int port) {
+inline void logMessage(char *buffer, char *address, unsigned int port) {
 	char loctime[BUF];
+	char message[MAXLENGTH];
 	time_t rawtime;
 	struct tm * timeinfo;
 	char name[NAMELENGTH];
@@ -473,16 +468,20 @@ void logMessage(char *buffer, char *address, unsigned int port) {
 	timeinfo = localtime(&rawtime);
 	strftime(loctime, BUF, "%Y-%m-%d %H:%M:%S", timeinfo);
 	
+	// Scan for name of logfile / logname
 	if (sscanf(buffer, "[%[a-zA-Z0-9.]]%[^\n]", name, buffer) != 2) {
 		strcpy(name, "yaul");
 	}
 	
+	// build standard logline
+	sprintf(message, "%s [%s:%u] %s", loctime, address, port, buffer);
+	
 	if (opt_redis) {
 		// output message to Redis
-		logMessageRedis(name, buffer, loctime, address, port);
+		logMessageRedis(name, message);
 	} else {
 		// output message to file
-		logMessageFile(name, buffer, loctime, address, port);
+		logMessageFile(name, message);
 	}
 }
 
