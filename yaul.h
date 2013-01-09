@@ -16,6 +16,7 @@ extern "C" {
 #endif
 
 #define BUF 1500
+#define MAXLENGTH 2000
 #define NAMELENGTH 255
 #define PATHLENGTH 2048
 #define HANDLEBUFFER 20
@@ -60,8 +61,8 @@ void daemonize_server(void);
 void openRedis(void);
 void initServer(void);
 FILE * openLogfile(char *name);
-void logMessageFile(char *name, char *message, char *loctime, char *address, unsigned int port);
-void logMessageRedis(char *name, char *message, char *loctime, char *address, unsigned int port);
+void logMessageFile(char *name, char *message);
+void logMessageRedis(char *name, char *message);
 void logMessage(char *buffer, char *address, unsigned int port);
 void statistics(void);
 void serverLoop(void);
