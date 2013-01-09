@@ -30,14 +30,14 @@ install:
 	$(MKDIR) -p -m 777 $(LOGPATH)
 	@echo Installation complete
 	
-yaul-Release: main.c
+yaul-Release: yaul.c
 	@echo Target: $(CONF)
-	$(CC) $(FLAGS) $(RFLAGS) -o yaul main.c $(DEPS) -lm
+	$(CC) $(FLAGS) $(RFLAGS) -o yaul yaul.c $(DEPS) -lm
 	@echo Build complete
 	
-yaul-Debug: main.c
+yaul-Debug: yaul.c
 	@echo Target: $(CONF)
-	$(CC) $(FLAGS) $(DFLAGS) -o yaul main.c $(DEPS) -lm
+	$(CC) $(FLAGS) $(DFLAGS) -o yaul yaul.c $(DEPS) -lm
 	@echo Build complete
 
 clean:

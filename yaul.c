@@ -27,35 +27,7 @@
 #include "hashtable/hashtable.h"
 #include "hashtable/hashtable_itr.h"
 
-#define BUF 1500
-#define NAMELENGTH 255
-#define PATHLENGTH 2048
-#define HANDLEBUFFER 20
-#define MAXHANDLES 20
-#define FLUSH 1
-
-// The following defines are usually set in Makefile
-#ifndef PORT
-#define PORT 9930
-#endif
-
-#ifndef ADDRESS
-#define ADDRESS "0.0.0.0"
-#endif
-
-#ifndef LOGPATH
-#define LOGPATH "/var/log/yaul"
-#endif
-
-#ifndef VERSION
-#define VERSION "n/a"
-#endif
-
-// Struct for buffering opened filehandles
-struct handlebuffer {
-	char name[NAMELENGTH];
-	FILE * filehandle;
-};
+#include "yaul.h"
 
 // general vars
 int port = PORT;							// the port yaul will be listening on
