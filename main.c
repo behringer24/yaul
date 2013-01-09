@@ -100,16 +100,19 @@ static int cmpKeys(void *a, void *b) {
  */
 static unsigned int hashKey(void *k) {
 	int i = 0;
-	int h = 0;
+	unsigned int h = 0;
 	char *key = (char *) k;
 	
 	for (i=0; i<strlen(key); i++) {
 		h += h * 256 + key[i];
 	}
-	
 	return h;
 }
 
+/**
+ * Dump hashtable to stderr, for debugging purposes
+ * @param h
+ */
 void hashtableDump(struct hashtable *h) {
 	struct hashtable_itr *itr;
 	struct handlebuffer * handle;
@@ -121,7 +124,8 @@ void hashtableDump(struct hashtable *h) {
 
 		do {
 			handle = hashtable_iterator_value(itr);
-			fprintf(stderr, "Key %s: Filename %s\n", (char *) hashtable_iterator_key(itr), handle->name);
+			key = hashtable_iterator_key(itr);
+			fprintf(stderr, "Key %s: Filename %s\n", key, handle->name);
 		} while (hashtable_iterator_advance(itr));
 
 		free(itr);
@@ -129,12 +133,13 @@ void hashtableDump(struct hashtable *h) {
 }
 
 /**
- * close a random entry in the handlebuffer
+ * close a random filehandle entry in the handlebuffer
  */
 void closeRandomFile(void) {
-	struct hashtable_itr *itr;
-	struct handlebuffer * handle;
+	struct hashtable_itr *itr = NULL;
+	struct handlebuffer * handle = NULL;
 	unsigned int i = 0;
+	unsigned int r = 0;
 	
 	if (!opt_redis) {
 		// only run if more than one opened file
@@ -142,23 +147,17 @@ void closeRandomFile(void) {
 			// do not close actual used file
 			do {
 				itr = hashtable_iterator(handles);
-				for (i = 0; i < rand() % (hashtable_count(handles) + 1); i++) {
+				r = rand() % (hashtable_count(handles));
+				for (i = 0; i < r; i++) {
 					hashtable_iterator_advance(itr);
 				}
 				handle = hashtable_iterator_value(itr);
-				fprintf(stderr, "Random file %s actual %s (key %s)\n", handle->name, lastfile->name, (char *) hashtable_iterator_key(itr));
 				free(itr);
 			} while (strcmp(handle->name, lastfile->name) == 0);
 			
 			fclose(handle->filehandle);
-			fprintf(stderr, "Closed %s\n", handle->name);
 			stat_files_closed++;
-			hashtableDump(handles);
 			hashtable_remove(handles, handle->name);
-			hashtableDump(handles);
-			fprintf(stderr, "Count hashtable after %u\n", hashtable_count(handles));
-			//hashtable_iterator_remove(itr);			
-			
 		}
 	}
 }
@@ -169,7 +168,7 @@ void closeRandomFile(void) {
 void closeAllFiles(void) {
 	struct hashtable_itr *itr;
 	struct handlebuffer * handle;
-	hashtableDump(handles);
+	
 	itr = hashtable_iterator(handles);
 	if (!opt_redis) {
 		if (hashtable_count(handles) > 0) {
@@ -180,7 +179,7 @@ void closeAllFiles(void) {
 			} while (hashtable_iterator_remove(itr));			
 		}
 	}
-	free(itr);hashtableDump(handles);
+	free(itr);
 }
 
 /**
@@ -225,7 +224,7 @@ static void sig_term(int signo) {
  * Print version string to screen
  */
 void print_version(void) {
-    fprintf(stderr, "YAUL version %s - Yet another UDP logger\n", VERSION);
+    fprintf(stdout, "YAUL version %s - Yet another UDP logger\n", VERSION);
 }
 
 /**
@@ -233,7 +232,7 @@ void print_version(void) {
  */
 void print_usage(void) {
 	print_version();
-    fprintf(stderr, "Usage: yaul [options]\n\
+    fprintf(stdout, "Usage: yaul [options]\n\
 -h, -?, --help             display this help information\n\
 -d, --daemonize            daemonize server process\n\
 -p, --port=PORT            bind to port number (default %u)\n\
@@ -399,8 +398,7 @@ FILE * openLogfile(char *name) {
 			newfile->filehandle = fopen(filename, "a");
 			if (newfile->filehandle) {
 				strcpy(newfile->name, name);
-				fprintf(stderr, "Opened %s\n", newfile->name);
-				hashtable_insert(handles, name, newfile);
+				hashtable_insert(handles, newfile->name, newfile);
 				stat_files_opened++;
 				stat_files_switched++;
 			} else {
@@ -413,7 +411,7 @@ FILE * openLogfile(char *name) {
 		
 		lastfile = newfile;
 	}
-	
+
 	return lastfile->filehandle;
 }
 
@@ -514,8 +512,6 @@ void logMessage(char *buffer, char *address, unsigned int port) {
 		// output message to file
 		logMessageFile(name, buffer, loctime, address, port);
 	}
-	
-			
 }
 
 /**
