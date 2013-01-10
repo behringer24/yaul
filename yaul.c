@@ -1,5 +1,7 @@
 /* 
- * File:   main.c
+ * YAUL - yet another udp logger - main file
+ * 
+ * File:   yaul.c
  * Author: Andreas Behringer
  * 
  * (c)2012 Andreas Behringer
@@ -15,7 +17,6 @@
 #include <netdb.h>
 #include <stdio.h>
 #include <unistd.h>
-#include <getopt.h>
 #include <string.h>
 #include <stdlib.h>
 #include <errno.h>
@@ -27,26 +28,16 @@
 #include "hashtable/hashtable.h"
 #include "hashtable/hashtable_itr.h"
 
+#include "config.h"
 #include "yaul.h"
+#include "hash.h"
 
 // general vars
-int port = PORT;							// the port yaul will be listening on
-char *address = ADDRESS;					// the address the server is bound to
-unsigned int opt_daemonize = 0;				// option: daemonize server
-unsigned int opt_statistics = 0;			// option: write statistics
-unsigned int opt_flush = FLUSH;				// flush logfile buffer every n'th msg
-unsigned int opt_redis = 0;					// log to redis instead of files
-redisContext *redis_context = NULL;			// context of opened redis connection
-char *redis_ip = "127.0.0.1";				// ip address of redis server
-int redis_port = 6379;						// port of redis server
-int redis_ttl = 0;							// ttl of redis message lists
-struct timeval redis_timeout = { 1, 500000 }; // 1.5 seconds
-int sock = 0;								// the UDP socket
-char logpath[PATHLENGTH] = LOGPATH;			// the path to the logfiles
-int buffersize = HANDLEBUFFER;				// configurable size of handle hashtable
 struct handlebuffer * lastfile = NULL;		// last used file in handlebuffer
 struct hashtable *handles;					// hashtable for buffering open filetables
-unsigned int maxhandles = MAXHANDLES;		// maximum number of opened files
+redisContext *redis_context = NULL;			// context of opened redis connection
+int sock = 0;								// the UDP socket
+struct yaulConfig config;					// Configuration variable holder declaration
 
 // statistic vars hold information since server start
 unsigned int stat_messages_handled = 0;		// messages handled and stored
@@ -63,22 +54,6 @@ time_t stat_start_time = 0;					// timestamp server was started
  */
 static int cmpKeys(void *a, void *b) {
 	return (0 == strcmp(a, b));
-}
-
-/**
- * Hashfunction
- * @param void * k
- * @return int
- */
-static unsigned int hashKey(void *k) {
-	int i = 0;
-	unsigned int h = 0;
-	char *key = (char *) k;
-	
-	for (i=0; i<strlen(key); i++) {
-		h += h * 256 + key[i];
-	}
-	return h;
 }
 
 /**
@@ -113,7 +88,7 @@ void closeRandomFile(void) {
 	unsigned int i = 0;
 	unsigned int r = 0;
 	
-	if (!opt_redis) {
+	if (!config.opt_redis) {
 		// only run if more than one opened file
 		if (hashtable_count(handles) > 1) {
 			// do not close actual used file
@@ -142,7 +117,7 @@ void closeAllFiles(void) {
 	struct handlebuffer * handle;
 	
 	itr = hashtable_iterator(handles);
-	if (!opt_redis) {
+	if (!config.opt_redis) {
 		if (hashtable_count(handles) > 0) {
 			do {
 				handle = hashtable_iterator_value(itr);
@@ -192,33 +167,6 @@ static void sig_term(int signo) {
     shutdownServer();
 }
 
-/**
- * Print version string to screen
- */
-void print_version(void) {
-    fprintf(stdout, "YAUL version %s - Yet another UDP logger\n", VERSION);
-}
-
-/**
- * Print usage information to screen
- */
-void print_usage(void) {
-	print_version();
-    fprintf(stdout, "Usage: yaul [options]\n\
--h, -?, --help             display this help information\n\
--d, --daemonize            daemonize server process\n\
--p, --port=PORT            bind to port number (default %u)\n\
--b, --bind=IP              bind to ip address (default %s)\n\
--l, --logpath=PATH         logging to path (default %s)\n\
--s, --statistics=FREQUENCY log statistics to file yaul.stat after every [frequency] logmessage\n\
--f, --flush=FREQUENCY      flush output stream after every [frequency] logmessage\n\
--r, --redis-ip=IP          connect to redis server at IP and implicit enable logging to redis (default %s)\n\
--o, --redis-port=PORT      connect to redis server at PORT and implicit enable logging to redis (default %u)\n\
--t, --redis-ttl=TTL        the TTL in seconds of the dayly lists in redis, starting on last log message added, 0 = persist\n\
--a, --hashtable-size=NUM   size of the hashtable handlebuffer (default %u)\n\
--m, --max-handles=NUM      maximum number of opened files (default %u)\n\
--v, --version              display version information\n", PORT, ADDRESS, LOGPATH, redis_ip, redis_port, HANDLEBUFFER, MAXHANDLES);
-}
 
 /**
  * Daemonize the server process and terminate parent, call is configured by option -d
@@ -270,7 +218,7 @@ void daemonize_server(void) {
     }
     
 	openlog("yaul", 0, LOG_DAEMON|LOG_PID);
-    syslog(LOG_INFO, "address %s, port %d", address, port);
+    syslog(LOG_INFO, "address %s, port %d", config.address, config.port);
 }
 
 /**
@@ -279,7 +227,9 @@ void daemonize_server(void) {
  * Errors are handled outside to keep server running if connection fails
  */
 void openRedis(void) {
-	redis_context = redisConnectWithTimeout(redis_ip, redis_port, redis_timeout);
+	struct timeval redis_timeout = { 1, 500000 }; // 1.5 seconds
+	
+	redis_context = redisConnectWithTimeout(config.redis_ip, config.redis_port, redis_timeout);
 	if (redis_context->err) {
 		syslog(LOG_ERR, "Redis connection error: %s\n", redis_context->errstr);
     }	
@@ -293,7 +243,7 @@ void initServer(void) {
 	const int y = 1;
 	int rc;
 	
-	handles = create_hashtable(buffersize, hashKey, cmpKeys);
+	handles = create_hashtable(config.buffersize, djb2Hash, cmpKeys);
 	
 	sock = socket (AF_INET, SOCK_DGRAM, 0);
 	if (sock < 0) {
@@ -301,26 +251,26 @@ void initServer(void) {
 		exit (EXIT_FAILURE);
 	}
 	// bind local address and port
-	if(! inet_pton(AF_INET, address, &servAddr.sin_addr)) {
-		(void)fprintf(stderr, "Invalid address: %s\n", address);
+	if(! inet_pton(AF_INET, config.address, &servAddr.sin_addr)) {
+		(void)fprintf(stderr, "Invalid address: %s\n", config.address);
 		exit(EXIT_FAILURE);
 	}
 	servAddr.sin_family = AF_INET;
-	servAddr.sin_port = htons (port);
+	servAddr.sin_port = htons (config.port);
 	setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &y, sizeof(int));
 	rc = bind (sock, (struct sockaddr *) &servAddr, sizeof (servAddr));
 	if (rc < 0) {
-		fprintf (stderr, "cannot bind port %d\n", port);
+		fprintf (stderr, "cannot bind port %d\n", config.port);
 		exit (EXIT_FAILURE);
 	}
 
-	printf ("YAUL listening on %s:%u (UDP)\n", address, port);
+	printf ("YAUL listening on %s:%u (UDP)\n", config.address, config.port);
 	
-	if (opt_statistics > 0) {
-		printf ("Statistics enabled to yaul.stat every %u message\n", opt_statistics);
+	if (config.opt_statistics > 0) {
+		printf ("Statistics enabled to yaul.stat every %u message\n", config.opt_statistics);
 	}
 	
-	if (opt_redis) {
+	if (config.opt_redis) {
 		openRedis();
 		if (redis_context->err) {
 			fprintf(stderr, "Redis connection error: %s\n", redis_context->errstr);
@@ -330,7 +280,7 @@ void initServer(void) {
 		}
 	}
 
-	if (opt_daemonize == 1) {
+	if (config.opt_daemonize == 1) {
 		daemonize_server();
 	} else {
 		openlog("yaul", 0, LOG_PID);
@@ -351,7 +301,7 @@ FILE * openLogfile(char *name) {
 	// If last message has same logname just return filehandle
 	if (lastfile == NULL || strcmp(lastfile->name, name) != 0) {
 		// implicit flush stream buffer of last logfile used if flushing is set > 1
-		if (lastfile != NULL && opt_flush > 1 && lastfile->filehandle != NULL) {
+		if (lastfile != NULL && config.opt_flush > 1 && lastfile->filehandle != NULL) {
 			fflush(lastfile->filehandle);
 		}
 		
@@ -361,12 +311,12 @@ FILE * openLogfile(char *name) {
 		// if not found logname in handles array open file
 		if (!newfile) {
 			// check if max handles reached
-			if (hashtable_count(handles) >= maxhandles) {
+			if (hashtable_count(handles) >= config.maxhandles) {
 				closeRandomFile();
 			}
 			// open file and store in handles
 			newfile = malloc(sizeof (struct handlebuffer));
-			sprintf(filename, "%s/%s.log", logpath, name);
+			sprintf(filename, "%s/%s.log", config.logpath, name);
 			newfile->filehandle = fopen(filename, "a");
 			if (newfile->filehandle) {
 				strcpy(newfile->name, name);
@@ -404,7 +354,7 @@ inline void logMessageFile(char *name, char *message) {
 		fprintf(fp, "%s\n", message);
 		stat_messages_handled++;
 		// flush buffer immediately to allow tail -f on logfiles
-		if (stat_messages_handled % opt_flush == 0) {
+		if (stat_messages_handled % config.opt_flush == 0) {
 			fflush(fp);
 		}
 	} else {
@@ -438,13 +388,13 @@ inline void logMessageRedis(char *name, char *message) {
 	stat_messages_handled++;
 	if (reply != NULL) {
 		freeReplyObject(reply);
-		if (redis_ttl > 0) {
-			reply = redisCommand(redis_context, "EXPIRE %s.%s %u", name, logtime, redis_ttl);
+		if (config.redis_ttl > 0) {
+			reply = redisCommand(redis_context, "EXPIRE %s.%s %u", name, logtime, config.redis_ttl);
 			freeReplyObject(reply);
 		}
 		// @todo catch redis reply for ttl error
 	} else {
-		syslog(LOG_ERR, "Logging to redis failed at server %s:%u", redis_ip, redis_port);
+		syslog(LOG_ERR, "Logging to redis failed at server %s:%u", config.redis_ip, config.redis_port);
 		openRedis();
 	}
 }
@@ -476,7 +426,7 @@ inline void logMessage(char *buffer, char *address, unsigned int port) {
 	// build standard logline
 	sprintf(message, "%s [%s:%u] %s", loctime, address, port, buffer);
 	
-	if (opt_redis) {
+	if (config.opt_redis) {
 		// output message to Redis
 		logMessageRedis(name, message);
 	} else {
@@ -498,7 +448,7 @@ void statistics(void) {
 			stat_files_switched,
 			(unsigned int) time(NULL) - stat_start_time,
 			(double) stat_messages_handled / (time(NULL) - stat_start_time));
-	logMessage(statistic_message, address, port);
+	logMessage(statistic_message, config.address, config.port);
 }
 
 /**
@@ -525,7 +475,7 @@ void serverLoop(void) {
 		logMessage(buffer, inet_ntoa(cliAddr.sin_addr), ntohs(cliAddr.sin_port));
 		
 		// If optional statistics logging is set log every n'th message
-		if (opt_statistics > 0 && stat_messages_handled % opt_statistics == 0) {
+		if (config.opt_statistics > 0 && stat_messages_handled % config.opt_statistics == 0) {
 			statistics();
 		}
 	}
@@ -539,83 +489,10 @@ void serverLoop(void) {
  * @return int
  */
 int main(int argc, char** argv) {
-	int opt;
-	int opt_index;
+	readOptions(argc, argv);
 	
-	static struct option long_options[] = {
-		{"bind", required_argument, 0, 'b'},
-		{"port", required_argument, 0, 'p'},
-		{"version", no_argument, 0, 'v'},
-		{"help", no_argument, 0, 'h'},
-		{"logpath", required_argument, 0, 'l'},
-		{"statistics", required_argument, 0, 's'},
-		{"flush", required_argument, 0, 'f'},
-		{"daemonize", no_argument, 0, 'd'},
-		{"redis-ip", required_argument, 0, 'r'},
-		{"redis-port", required_argument, 0, 'o'},
-		{"redis-ttl", required_argument, 0, 't'},
-		{"hashtable-size", required_argument, 0, 'a'},
-		{"max-handles", required_argument, 0, 'm'},
-		{0, 0, 0, 0}
-	};
-		
+	// start statistics timer
 	stat_start_time = time(NULL);
-	
-	// Parse options
-    while ((opt = getopt_long(
-			argc, 
-			(char ** const)argv, 
-			"b:dh?p:l:vs:f:r:o:t:a:m:", 
-			long_options, 
-			&opt_index)) != EOF) {
-		switch (opt) {
-			case 'b':
-				address = optarg;
-				break;
-			case 'p':
-				port = atoi(optarg);
-				break;
-			case 'v':
-				print_version();
-				exit (EXIT_SUCCESS);
-				break;
-			case '?':
-			case 'h':
-				print_usage();
-				exit (EXIT_SUCCESS);
-				break;
-			case 'l':
-				strcpy(logpath, optarg);
-				break;
-			case 's':
-				opt_statistics = atoi(optarg);
-				break;
-			case 'f':
-				opt_flush = atoi(optarg);
-				break;
-			case 'd':
-				opt_daemonize = 1;
-				break;
-			case 'r':
-				redis_ip = optarg;
-				opt_redis = 1;
-				break;
-			case 'o':
-				redis_port = atoi(optarg);
-				opt_redis = 1;
-				break;
-			case 't':
-				redis_ttl = atoi(optarg);
-				opt_redis = 1;
-				break;
-			case 'a':
-				buffersize = atoi(optarg);
-				break;
-			case 'm':
-				maxhandles = atoi(optarg);
-				break;
-		}
-    }
   
 	// create socket and init server
 	initServer();

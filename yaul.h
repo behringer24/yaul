@@ -1,4 +1,6 @@
 /* 
+ * Header definitions of main file
+ * 
  * File:   yaul.h
  * Author: Andreas Behringer
  * 
@@ -15,31 +17,6 @@
 extern "C" {
 #endif
 
-#define BUF 1500
-#define MAXLENGTH 2000
-#define NAMELENGTH 255
-#define PATHLENGTH 2048
-#define HANDLEBUFFER 20
-#define MAXHANDLES 20
-#define FLUSH 1
-
-// The following defines are usually set in Makefile
-#ifndef PORT
-#define PORT 9930
-#endif
-
-#ifndef ADDRESS
-#define ADDRESS "0.0.0.0"
-#endif
-
-#ifndef LOGPATH
-#define LOGPATH "/var/log/yaul"
-#endif
-
-#ifndef VERSION
-#define VERSION "n/a"
-#endif
-
 // Struct for buffering opened filehandles
 typedef struct handlebuffer {
 	char name[NAMELENGTH];
@@ -48,7 +25,6 @@ typedef struct handlebuffer {
 
 /* Function Prototypes */
 static int cmpKeys(void *a, void *b);
-static unsigned int hashKey(void *k);
 void closeRandomFile(void);
 void closeAllFiles(void);
 void shutdownServer(void);

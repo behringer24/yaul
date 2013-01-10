@@ -5,7 +5,7 @@
 # Copyright: GPL see included LICENSE file
 
 # Environment 
-VERSION = "0.8.0"
+VERSION = "0.8.1"
 PREFIX	= /usr
 LOGPATH	= "/var/log/yaul"
 ADDRESS	= "0.0.0.0"
@@ -15,7 +15,7 @@ CHMOD	= chmod
 CP	= cp
 CC	= gcc
 CCADMIN	= CCadmin
-DEPS    = hiredis/hiredis.c hiredis/net.c hiredis/sds.c hashtable/hashtable.c hashtable/hashtable_itr.c
+DEPS    = hiredis/hiredis.c hiredis/net.c hiredis/sds.c hashtable/hashtable.c hashtable/hashtable_itr.c config.c hash.c
 FLAGS	= -Wall -MMD -MP -DVERSION='$(VERSION)' -DLOGPATH='$(LOGPATH)' -DPORT=$(PORT) -DADDRESS='$(ADDRESS)'
 DFLAGS  = -g
 RFLAGS  = -O2
