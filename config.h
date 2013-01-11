@@ -21,8 +21,7 @@ extern "C" {
 #define MAXLENGTH 2000
 #define NAMELENGTH 255
 #define PATHLENGTH 2048
-#define HANDLEBUFFER 20
-#define MAXHANDLES 20
+#define MAXHANDLES 50
 #define FLUSH 1
 
 // The following defines are usually set in Makefile
@@ -57,7 +56,6 @@ struct yaulConfig {
 	int redis_ttl ;							// ttl of redis message lists
 	
 	char *logpath;							// the path to the logfiles
-	int buffersize;				// configurable size of handle hashtable
 	unsigned int maxhandles;		// maximum number of opened files
 };
 
@@ -74,4 +72,3 @@ void readOptions(int argc, char** argv);
 #endif
 
 #endif	/* CONFIG_H */
-

@@ -243,7 +243,7 @@ void initServer(void) {
 	const int y = 1;
 	int rc;
 	
-	handles = create_hashtable(config.buffersize, djb2Hash, cmpKeys);
+	handles = create_hashtable(config.maxhandles, djb2Hash, cmpKeys);
 	
 	sock = socket (AF_INET, SOCK_DGRAM, 0);
 	if (sock < 0) {

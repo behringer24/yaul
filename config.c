@@ -45,14 +45,12 @@ void print_usage(void) {
 -r, --redis-ip=IP          connect to redis server at IP and implicit enable logging to redis (default %s)\n\
 -o, --redis-port=PORT      connect to redis server at PORT and implicit enable logging to redis (default %u)\n\
 -t, --redis-ttl=TTL        the TTL in seconds of the dayly lists in redis, starting on last log message added, 0 = persist\n\
--a, --hashtable-size=NUM   size of the hashtable handlebuffer (default %u)\n\
 -m, --max-handles=NUM      maximum number of opened files (default %u)\n\
--v, --version              display version information\n", PORT, ADDRESS, LOGPATH, config.redis_ip, config.redis_port, HANDLEBUFFER, MAXHANDLES);
+-v, --version              display version information\n", PORT, ADDRESS, LOGPATH, config.redis_ip, config.redis_port, MAXHANDLES);
 }
 
 void setDefaultOptions(void) {
 	config.address = ADDRESS;
-	config.buffersize = HANDLEBUFFER;
 	config.logpath = LOGPATH;
 	config.maxhandles = MAXHANDLES;
 	config.opt_daemonize = 0;
@@ -83,7 +81,6 @@ void readOptions(int argc, char** argv) {
 		{"redis-ip", required_argument, 0, 'r'},
 		{"redis-port", required_argument, 0, 'o'},
 		{"redis-ttl", required_argument, 0, 't'},
-		{"hashtable-size", required_argument, 0, 'a'},
 		{"max-handles", required_argument, 0, 'm'},
 		{0, 0, 0, 0}
 	};
@@ -92,7 +89,7 @@ void readOptions(int argc, char** argv) {
     while ((opt = getopt_long(
 			argc, 
 			(char ** const)argv, 
-			"b:dh?p:l:vs:f:r:o:t:a:m:", 
+			"b:dh?p:l:vs:f:r:o:t:m:", 
 			long_options, 
 			&opt_index)) != EOF) {
 		switch (opt) {
@@ -134,9 +131,6 @@ void readOptions(int argc, char** argv) {
 			case 't':
 				config.redis_ttl = atoi(optarg);
 				config.opt_redis = 1;
-				break;
-			case 'a':
-				config.buffersize = atoi(optarg);
 				break;
 			case 'm':
 				config.maxhandles = atoi(optarg);
