@@ -24,11 +24,15 @@ Setup an appropriate logrotate pattern in your /etc/logrotate.conf or /etc/logro
     Usage: yaul [options]
     -h, -?, --help             display command line help information
     -d, --daemonize            daemonize server process
-    -p, --port=PORT            bind to port number (default %u)
-    -b, --bind=IP              bind to ip address (default %s)
-    -l, --logpath=PATH         logging to path (default %s)
+    -p, --port=PORT            bind to port number
+    -b, --bind=IP              bind to ip address
+    -l, --logpath=PATH         logging to path
     -s, --statistics=FREQUENCY log statistics to file yaul.stat after every [frequency] logmessage
     -f, --flush=FREQUENCY      flush output stream after every [frequency] logmessage
+    -r, --redis-ip=IP          connect to redis server at IP and implicit enable logging to redis
+    -o, --redis-port=PORT      connect to redis server at PORT and implicit enable logging to redis
+    -t, --redis-ttl=TTL        the TTL in seconds of the dayly lists in redis, starting on last log message added, 0 = persist
+    -m, --max-handles=NUM      maximum number of opened files
     -v, --version              display version information
 ```
 
