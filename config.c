@@ -49,6 +49,9 @@ void print_usage(void) {
 -v, --version              display version information\n", PORT, ADDRESS, LOGPATH, config.redis_ip, config.redis_port, MAXHANDLES);
 }
 
+/**
+ * Init configuration with default values
+ */
 void setDefaultOptions(void) {
 	config.address = ADDRESS;
 	config.logpath = LOGPATH;
@@ -63,6 +66,11 @@ void setDefaultOptions(void) {
 	config.redis_ttl = 0;
 }
 
+/**
+ * Read options from command line
+ * @param argc
+ * @param argv
+ */
 void readOptions(int argc, char** argv) {
 	int opt;
 	int opt_index;
