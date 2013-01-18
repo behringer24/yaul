@@ -11,10 +11,7 @@ LOGPATH	= "/var/log/yaul"
 ADDRESS	= "0.0.0.0"
 PORT	= 9930
 MKDIR	= mkdir
-CHMOD	= chmod
-CP	= cp
 CC	= gcc
-CCADMIN	= CCadmin
 DEPS    = hiredis/hiredis.c hiredis/net.c hiredis/sds.c hashtable/hashtable.c hashtable/hashtable_itr.c config.c hash.c
 FLAGS	= -Wall -MMD -MP -DVERSION='$(VERSION)' -DLOGPATH='$(LOGPATH)' -DPORT=$(PORT) -DADDRESS='$(ADDRESS)'
 DFLAGS  = -g
@@ -27,6 +24,7 @@ debug: yaul-Debug
 	
 install:
 	install -m 755 yaul $(PREFIX)/sbin/yaul
+	install -m 744 init.d/yaul-logger /etc/init.d/yaul-logger
 	$(MKDIR) -p -m 777 $(LOGPATH)
 	@echo Installation complete
 	

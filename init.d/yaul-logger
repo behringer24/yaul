@@ -1,0 +1,32 @@
+#! /bin/sh
+### BEGIN INIT INFO
+# Provides:          YAUL UDP logger
+# Required-Start:    
+# Required-Stop:     
+# Default-Start:     2 3 4 5
+# Default-Stop:      0 1 6
+# Short-Description: High performance UDP logging daemon
+# Description:       For Details visit http://github.com/behringer24/yaul.git
+### END INIT INFO
+# Author: Andreas Behringer <abe@activecube.de>
+# Skeleton from http://wiki.ubuntuusers.de/Dienste
+
+YAUL_BIN=yaul
+YAUL_PATH=/usr/sbin/
+YAUL_OPTIONS=-d
+
+# Aktionen
+case "$1" in
+    start)
+        $YAUL_PATH$YAUL_BIN $YAUL_OPTIONS
+        ;;
+    stop)
+        kill $(pidof $YAUL_BIN)
+        ;;
+    restart)
+        kill $(pidof $YAUL_BIN)
+        $YAUL_PATH$YAUL_BIN $YAUL_OPTIONS
+        ;;
+esac
+
+exit 0
