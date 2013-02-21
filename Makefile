@@ -8,12 +8,13 @@
 VERSION = "1.0.2"
 PREFIX	= /usr
 LOGPATH	= "/var/log/yaul"
+DEFAULTCFG = "/etc/yaul.conf"
 ADDRESS	= "0.0.0.0"
 PORT	= 9930
 MKDIR	= mkdir
 CC	= gcc
 DEPS    = hiredis/hiredis.c hiredis/net.c hiredis/sds.c hashtable/hashtable.c hashtable/hashtable_itr.c config.c hash.c
-FLAGS	= -Wall -MMD -MP -DVERSION='$(VERSION)' -DLOGPATH='$(LOGPATH)' -DPORT=$(PORT) -DADDRESS='$(ADDRESS)'
+FLAGS	= -Wall -MMD -MP -DVERSION='$(VERSION)' -DLOGPATH='$(LOGPATH)' -DPORT=$(PORT) -DADDRESS='$(ADDRESS)' -DDEFAULTCFG='$(DEFAULTCFG)'
 DFLAGS  = -g
 RFLAGS  = -O2
 CONF	= Release
