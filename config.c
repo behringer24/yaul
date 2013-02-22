@@ -153,7 +153,7 @@ void handleConfigParameter(int opt, char * optarg) {
 			exit (EXIT_SUCCESS);
 			break;
 		case 'l':
-			strcpy(config.logpath, optarg);
+			config.logpath = optarg;
 			break;
 		case 's':
 			config.opt_statistics = atoi(optarg);
